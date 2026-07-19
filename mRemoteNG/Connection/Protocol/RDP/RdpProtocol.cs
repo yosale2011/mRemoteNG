@@ -11,6 +11,7 @@ using mRemoteNG.UI.Forms;
 using mRemoteNG.UI.Tabs;
 using MSTSCLib;
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
@@ -384,6 +385,7 @@ namespace mRemoteNG.Connection.Protocol.RDP
             
             SetUseConsoleSession();
             SetPort();
+            SetVirtualChannelPlugins();
             RedirectKeys = connectionInfo.RedirectKeys;
             SetRedirection();
             SetAuthenticationLevel();
@@ -784,20 +786,158 @@ namespace mRemoteNG.Connection.Protocol.RDP
             }
         }
 
+        private void SetVirtualChannelPlugins()
+        {
+            // The RDP ActiveX control only accepts bare, alphanumeric DLL file names in
+            // PluginDlls — any path (or a {CLSID}) is rejected and can invalidate the whole
+            // list. Static virtual channel DLLs are loaded from %windir%\System32 unless
+            // HKLM\SOFTWARE\Microsoft\Terminal Server Client\vdllpath points elsewhere.
+            // DVC add-ins registered under ...\Terminal Server Client\Default\AddIns with a
+            // {CLSID} Name are loaded automatically by mstscax and need no handling here.
+            // https://learn.microsoft.com/en-us/windows/win32/termserv/using-the-remote-desktop-activex-control-with-virtual-channels
+            try
+            {
+                string pluginDir = Microsoft.Win32.Registry.GetValue(
+                    @"HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Terminal Server Client",
+                    "vdllpath", null) as string ?? Environment.SystemDirectory;
+                DebugLog($"[SetVirtualChannelPlugins] Plugin directory: {pluginDir}");
+
+                List<string> pluginNames = new();
+
+                void AddIfLoadable(string fileName, string source)
+                {
+                    if (string.IsNullOrEmpty(fileName)) return;
+                    if (pluginNames.Exists(n => n.Equals(fileName, StringComparison.OrdinalIgnoreCase))) return;
+
+                    if (File.Exists(Path.Combine(pluginDir, fileName)))
+                    {
+                        pluginNames.Add(fileName);
+                        DebugLog($"[SetVirtualChannelPlugins] Adding '{fileName}' ({source})");
+                    }
+                    else
+                    {
+                        DebugLog($"[SetVirtualChannelPlugins] Skipping '{fileName}' ({source}) - not present in {pluginDir}; the control cannot load DLLs by full path");
+                    }
+                }
+
+                // TSPrint installs tsprint.dll into System32 specifically for ActiveX-based clients.
+                AddIfLoadable("tsprint.dll", "well-known plugin");
+
+                string[] registryRoots = {
+                    @"HKEY_CURRENT_USER\Software\Microsoft\Terminal Server Client\Default\AddIns",
+                    @"HKEY_LOCAL_MACHINE\Software\Microsoft\Terminal Server Client\Default\AddIns"
+                };
+
+                foreach (string regRoot in registryRoots)
+                {
+                    string hive = regRoot.StartsWith("HKEY_CURRENT_USER") ? "HKCU" : "HKLM";
+                    string subKey = regRoot.Substring(regRoot.IndexOf('\\') + 1);
+
+                    Microsoft.Win32.RegistryKey baseKey = regRoot.StartsWith("HKEY_CURRENT_USER")
+                        ? Microsoft.Win32.Registry.CurrentUser
+                        : Microsoft.Win32.Registry.LocalMachine;
+
+                    using (Microsoft.Win32.RegistryKey key = baseKey.OpenSubKey(subKey))
+                    {
+                        if (key == null) continue;
+
+                        foreach (string subKeyName in key.GetSubKeyNames())
+                        {
+                            using (Microsoft.Win32.RegistryKey subKey2 = key.OpenSubKey(subKeyName))
+                            {
+                                if (subKey2 == null) continue;
+                                string nameValue = subKey2.GetValue("Name") as string;
+                                if (string.IsNullOrEmpty(nameValue)) continue;
+
+                                DebugLog($"[SetVirtualChannelPlugins] {hive} Found add-in: {subKeyName} -> {nameValue}");
+
+                                if (nameValue.StartsWith("{") && nameValue.EndsWith("}"))
+                                {
+                                    DebugLog($"[SetVirtualChannelPlugins] '{subKeyName}' is a DVC plugin (CLSID) - loaded automatically by mstscax, not adding to PluginDlls");
+                                    continue;
+                                }
+
+                                AddIfLoadable(Path.GetFileName(nameValue), $"{hive} AddIns\\{subKeyName}");
+                            }
+                        }
+                    }
+                }
+
+                if (pluginNames.Count > 0)
+                {
+                    string pluginList = string.Join(",", pluginNames);
+                    try
+                    {
+                        _rdpClient.AdvancedSettings.PluginDlls = pluginList;
+                        DebugLog($"[SetVirtualChannelPlugins] Set PluginDlls to: {pluginList}");
+                    }
+                    catch (Exception setEx)
+                    {
+                        DebugLog($"[SetVirtualChannelPlugins] FAILED to set PluginDlls: {setEx.Message}");
+                        Runtime.MessageCollector.AddExceptionStackTrace("Failed to set PluginDlls", setEx);
+                    }
+                }
+                else
+                {
+                    DebugLog("[SetVirtualChannelPlugins] No loadable static virtual channel DLLs found");
+                }
+            }
+            catch (Exception ex)
+            {
+                DebugLog($"[SetVirtualChannelPlugins] FAILED: {ex.Message}{Environment.NewLine}{ex.StackTrace}");
+                Runtime.MessageCollector.AddExceptionStackTrace("Failed to load virtual channel plugins", ex);
+            }
+        }
+
+        private static readonly string DebugLogPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "mRemoteNG", "rdp_debug.log");
+
+        private static void DebugLog(string msg)
+        {
+            try
+            {
+                string dir = Path.GetDirectoryName(DebugLogPath);
+                if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                    Directory.CreateDirectory(dir);
+                File.AppendAllText(DebugLogPath, $"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff} {msg}{Environment.NewLine}");
+            }
+            catch { }
+        }
+
         private void SetRedirection()
         {
             try
             {
+                string info = $"[SetRedirection] Connection: {connectionInfo.Name}, " +
+                    $"RedirectPrinters={connectionInfo.RedirectPrinters}, " +
+                    $"RedirectPorts={connectionInfo.RedirectPorts}, " +
+                    $"RedirectSmartCards={connectionInfo.RedirectSmartCards}, " +
+                    $"RedirectClipboard={connectionInfo.RedirectClipboard}, " +
+                    $"RedirectDiskDrives={connectionInfo.RedirectDiskDrives}, " +
+                    $"RdpVersion={RdpProtocolVersion}";
+                DebugLog(info);
+                Runtime.MessageCollector.AddMessage(MessageClass.InformationMsg, info);
+
                 SetDriveRedirection();
                 _rdpClient.AdvancedSettings2.RedirectPorts = connectionInfo.RedirectPorts;
-                _rdpClient.AdvancedSettings2.RedirectPrinters = connectionInfo.RedirectPrinters;
+                DebugLog($"[SetRedirection] RedirectPorts set to {connectionInfo.RedirectPorts}");
+
+                bool forceRedirectPrinters = true;
+                _rdpClient.AdvancedSettings2.RedirectPrinters = forceRedirectPrinters;
+                DebugLog($"[SetRedirection] RedirectPrinters config={connectionInfo.RedirectPrinters}, forced={forceRedirectPrinters}");
+
                 _rdpClient.AdvancedSettings2.RedirectSmartCards = connectionInfo.RedirectSmartCards;
                 _rdpClient.SecuredSettings2.AudioRedirectionMode = (int)connectionInfo.RedirectSound;
                 _rdpClient.AdvancedSettings6.RedirectClipboard = connectionInfo.RedirectClipboard;
+
+                bool verifyPrinters = _rdpClient.AdvancedSettings2.RedirectPrinters;
+                DebugLog($"[SetRedirection] Verifying: AdvancedSettings2.RedirectPrinters={verifyPrinters}");
             }
             catch (Exception ex)
             {
+                DebugLog($"[SetRedirection] FAILED: {ex.Message}{Environment.NewLine}{ex.StackTrace}");
                 Runtime.MessageCollector.AddExceptionStackTrace(Language.RdpSetRedirectionFailed, ex);
+                Runtime.MessageCollector.AddMessage(MessageClass.ErrorMsg,
+                    $"[SetRedirection] FAILED: {ex.Message}{Environment.NewLine}{ex.StackTrace}");
             }
         }
 
