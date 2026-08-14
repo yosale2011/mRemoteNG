@@ -1,5 +1,6 @@
 ﻿using mRemoteNG.App.Info;
 using mRemoteNG.Config.Putty;
+using mRemoteNG.Config.Settings;
 using mRemoteNG.Connection;
 using mRemoteNG.Credential;
 using mRemoteNG.Credential.Repositories;
@@ -140,6 +141,11 @@ namespace mRemoteNG.App
 
         public static ConnectionsService ConnectionsService { get; } = new ConnectionsService(PuttySessionsManager.Instance);
 
+        /// <summary>
+        /// Dev-only options repository manager. Only initialized in DEBUG builds.
+        /// </summary>
+        public static OptionsRepositoryManager OptionsRepositoryManager { get; set; } = new();
+
         #region Connections Loading/Saving
 
         public static void LoadConnectionsAsync()
@@ -201,7 +207,7 @@ namespace mRemoteNG.App
             }
             catch (Exception ex)
             {
-                FrmSplashScreenNew.GetInstance().Close();
+                ProgramRoot.CloseSplash();
 
                 if (Properties.OptionsDBsPage.Default.UseSQLServer)
                 {

@@ -3844,7 +3844,16 @@ namespace mRemoteNG.Resources.Language {
                 return ResourceManager.GetString("NewExternalTool", resourceCulture);
             }
         }
-        
+
+        /// <summary>
+        ///   Looks up a localized string similar to Add Root.
+        /// </summary>
+        internal static string AddRoot {
+            get {
+                return ResourceManager.GetString("AddRoot", resourceCulture);
+            }
+        }
+
         /// <summary>
         ///   Looks up a localized string similar to New Folder.
         /// </summary>
@@ -4182,9 +4191,9 @@ namespace mRemoteNG.Resources.Language {
         /// <summary>
         ///   Looks up a localized string similar to Page control in Options menu.
         /// </summary>
-        internal static string PageСontrolInOptionsMenu {
+        internal static string PageControlInOptionsMenu {
             get {
-                return ResourceManager.GetString("PageСontrolInOptionsMenu", resourceCulture);
+                return ResourceManager.GetString("PageControlInOptionsMenu", resourceCulture);
             }
         }
         

@@ -1,4 +1,5 @@
 ﻿using System;
+using System.ComponentModel;
 using System.Windows.Forms;
 using mRemoteNG.Themes;
 using System.Linq;
@@ -26,6 +27,7 @@ namespace mRemoteNG.UI.Forms.OptionsPages
         public ThemePage()
         {
             InitializeComponent();
+            if (LicenseManager.UsageMode == LicenseUsageMode.Designtime) return;
             PageIcon = Resources.ImageConverter.GetImageAsIcon(Properties.Resources.AppearanceEditor_16x);
             _themeManager = ThemeManager.getInstance();
             if (!_themeManager.ThemingActive) return;
@@ -99,6 +101,10 @@ namespace mRemoteNG.UI.Forms.OptionsPages
                 if (!Properties.OptionsThemePage.Default.ThemeName.Equals(((ThemeInfo)cboTheme.SelectedItem).Name))
                 {
                     Properties.OptionsThemePage.Default.ThemeName = ((ThemeInfo)cboTheme.SelectedItem).Name;
+                    // Keep the persisted dark flag in sync with the chosen theme so the next
+                    // startup picks the right color mode without loading themes (the theme is
+                    // only actually applied on restart).
+                    Properties.OptionsThemePage.Default.IsActiveThemeDark = ThemeManager.IsThemeDark((ThemeInfo)cboTheme.SelectedItem);
                     CTaskDialog.MessageBox("Theme Changed", "Restart Required.", "Please restart mRemoteNG to apply the selected theme.", ETaskDialogButtons.Ok, ESysIcons.Information);
                 }
             }
