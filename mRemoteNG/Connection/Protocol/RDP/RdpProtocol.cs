@@ -800,7 +800,8 @@ namespace mRemoteNG.Connection.Protocol.RDP
                 string pluginDir = Microsoft.Win32.Registry.GetValue(
                     @"HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Terminal Server Client",
                     "vdllpath", null) as string ?? Environment.SystemDirectory;
-                DebugLog($"[SetVirtualChannelPlugins] Plugin directory: {pluginDir}");
+                Runtime.MessageCollector.AddMessage(MessageClass.DebugMsg,
+                    $"Loading RDP static virtual channel plugins from '{pluginDir}'.");
 
                 List<string> pluginNames = new();
 
@@ -812,11 +813,13 @@ namespace mRemoteNG.Connection.Protocol.RDP
                     if (File.Exists(Path.Combine(pluginDir, fileName)))
                     {
                         pluginNames.Add(fileName);
-                        DebugLog($"[SetVirtualChannelPlugins] Adding '{fileName}' ({source})");
+                        Runtime.MessageCollector.AddMessage(MessageClass.DebugMsg,
+                            $"Adding RDP virtual channel plugin '{fileName}' ({source}).");
                     }
                     else
                     {
-                        DebugLog($"[SetVirtualChannelPlugins] Skipping '{fileName}' ({source}) - not present in {pluginDir}; the control cannot load DLLs by full path");
+                        Runtime.MessageCollector.AddMessage(MessageClass.DebugMsg,
+                            $"Skipping RDP virtual channel plugin '{fileName}' ({source}): not present in '{pluginDir}'. The control cannot load plugins by path.");
                     }
                 }
 
@@ -849,11 +852,9 @@ namespace mRemoteNG.Connection.Protocol.RDP
                                 string nameValue = subKey2.GetValue("Name") as string;
                                 if (string.IsNullOrEmpty(nameValue)) continue;
 
-                                DebugLog($"[SetVirtualChannelPlugins] {hive} Found add-in: {subKeyName} -> {nameValue}");
-
                                 if (nameValue.StartsWith("{") && nameValue.EndsWith("}"))
                                 {
-                                    DebugLog($"[SetVirtualChannelPlugins] '{subKeyName}' is a DVC plugin (CLSID) - loaded automatically by mstscax, not adding to PluginDlls");
+                                    // Dynamic virtual channel add-in: loaded by mstscax itself.
                                     continue;
                                 }
 
@@ -869,75 +870,46 @@ namespace mRemoteNG.Connection.Protocol.RDP
                     try
                     {
                         _rdpClient.AdvancedSettings.PluginDlls = pluginList;
-                        DebugLog($"[SetVirtualChannelPlugins] Set PluginDlls to: {pluginList}");
+                        Runtime.MessageCollector.AddMessage(MessageClass.DebugMsg,
+                            $"Set RDP PluginDlls to '{pluginList}'.");
                     }
                     catch (Exception setEx)
                     {
-                        DebugLog($"[SetVirtualChannelPlugins] FAILED to set PluginDlls: {setEx.Message}");
                         Runtime.MessageCollector.AddExceptionStackTrace("Failed to set PluginDlls", setEx);
                     }
                 }
                 else
                 {
-                    DebugLog("[SetVirtualChannelPlugins] No loadable static virtual channel DLLs found");
+                    Runtime.MessageCollector.AddMessage(MessageClass.DebugMsg,
+                        "No loadable RDP static virtual channel plugins found.");
                 }
             }
             catch (Exception ex)
             {
-                DebugLog($"[SetVirtualChannelPlugins] FAILED: {ex.Message}{Environment.NewLine}{ex.StackTrace}");
                 Runtime.MessageCollector.AddExceptionStackTrace("Failed to load virtual channel plugins", ex);
             }
-        }
-
-        private static readonly string DebugLogPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "mRemoteNG", "rdp_debug.log");
-
-        private static void DebugLog(string msg)
-        {
-            try
-            {
-                string dir = Path.GetDirectoryName(DebugLogPath);
-                if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
-                    Directory.CreateDirectory(dir);
-                File.AppendAllText(DebugLogPath, $"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff} {msg}{Environment.NewLine}");
-            }
-            catch { }
         }
 
         private void SetRedirection()
         {
             try
             {
-                string info = $"[SetRedirection] Connection: {connectionInfo.Name}, " +
-                    $"RedirectPrinters={connectionInfo.RedirectPrinters}, " +
-                    $"RedirectPorts={connectionInfo.RedirectPorts}, " +
-                    $"RedirectSmartCards={connectionInfo.RedirectSmartCards}, " +
-                    $"RedirectClipboard={connectionInfo.RedirectClipboard}, " +
-                    $"RedirectDiskDrives={connectionInfo.RedirectDiskDrives}, " +
-                    $"RdpVersion={RdpProtocolVersion}";
-                DebugLog(info);
-                Runtime.MessageCollector.AddMessage(MessageClass.InformationMsg, info);
+                Runtime.MessageCollector.AddMessage(MessageClass.DebugMsg,
+                    $"Setting redirection for '{connectionInfo.Name}': " +
+                    $"printers={connectionInfo.RedirectPrinters}, ports={connectionInfo.RedirectPorts}, " +
+                    $"smart cards={connectionInfo.RedirectSmartCards}, clipboard={connectionInfo.RedirectClipboard}, " +
+                    $"disk drives={connectionInfo.RedirectDiskDrives}, RDP version={RdpProtocolVersion}.");
 
                 SetDriveRedirection();
                 _rdpClient.AdvancedSettings2.RedirectPorts = connectionInfo.RedirectPorts;
-                DebugLog($"[SetRedirection] RedirectPorts set to {connectionInfo.RedirectPorts}");
-
-                bool forceRedirectPrinters = true;
-                _rdpClient.AdvancedSettings2.RedirectPrinters = forceRedirectPrinters;
-                DebugLog($"[SetRedirection] RedirectPrinters config={connectionInfo.RedirectPrinters}, forced={forceRedirectPrinters}");
-
+                _rdpClient.AdvancedSettings2.RedirectPrinters = connectionInfo.RedirectPrinters;
                 _rdpClient.AdvancedSettings2.RedirectSmartCards = connectionInfo.RedirectSmartCards;
                 _rdpClient.SecuredSettings2.AudioRedirectionMode = (int)connectionInfo.RedirectSound;
                 _rdpClient.AdvancedSettings6.RedirectClipboard = connectionInfo.RedirectClipboard;
-
-                bool verifyPrinters = _rdpClient.AdvancedSettings2.RedirectPrinters;
-                DebugLog($"[SetRedirection] Verifying: AdvancedSettings2.RedirectPrinters={verifyPrinters}");
             }
             catch (Exception ex)
             {
-                DebugLog($"[SetRedirection] FAILED: {ex.Message}{Environment.NewLine}{ex.StackTrace}");
                 Runtime.MessageCollector.AddExceptionStackTrace(Language.RdpSetRedirectionFailed, ex);
-                Runtime.MessageCollector.AddMessage(MessageClass.ErrorMsg,
-                    $"[SetRedirection] FAILED: {ex.Message}{Environment.NewLine}{ex.StackTrace}");
             }
         }
 
