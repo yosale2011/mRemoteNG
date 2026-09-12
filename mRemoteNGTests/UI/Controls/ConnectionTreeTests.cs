@@ -1,6 +1,7 @@
 ﻿using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
+using System.Windows.Forms;
 using mRemoteNG.Connection;
 using mRemoteNG.Container;
 using mRemoteNG.Tools.Clipboard;
@@ -332,7 +333,7 @@ namespace mRemoteNGTests.UI.Controls
 			Assert.That(_connectionTree.IsExpanded(parent), Is.False);
 
 			_connectionTree.Expand(parent);
-			WaitUntil(() => _connectionTree.IsExpanded(parent) && _connectionTree.GetChildren(parent).Count == children.Count);
+			WaitUntil(() => _connectionTree.IsExpanded(parent) && _connectionTree.GetChildren(parent).Cast<object>().Count() == children.Count);
 
 			Assert.That(_connectionTree.GetChildren(parent), Has.Count.EqualTo(children.Count));
 		}
@@ -344,7 +345,7 @@ namespace mRemoteNGTests.UI.Controls
 			var (root, parent, children) = CreateTreeWithChildren(120);
 
 			_connectionTree.Expand(parent);
-			WaitUntil(() => _connectionTree.GetChildren(parent).Count > 0);
+			WaitUntil(() => _connectionTree.GetChildren(parent).Cast<object>().Count() > 0);
 
 			_connectionTree.Collapse(parent);
 			WaitUntil(() => !_connectionTree.IsExpanded(parent));
@@ -353,7 +354,7 @@ namespace mRemoteNGTests.UI.Controls
 			Assert.That(_connectionTree.GetChildren(parent), Is.Empty);
 
 			_connectionTree.Expand(parent);
-			WaitUntil(() => _connectionTree.IsExpanded(parent) && _connectionTree.GetChildren(parent).Count == children.Count);
+			WaitUntil(() => _connectionTree.IsExpanded(parent) && _connectionTree.GetChildren(parent).Cast<object>().Count() == children.Count);
 			Assert.That(_connectionTree.GetChildren(parent), Has.Count.EqualTo(children.Count));
 		}
 
