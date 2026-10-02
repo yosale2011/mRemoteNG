@@ -1,4 +1,4 @@
-# Changelog
+﻿# Changelog
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
@@ -23,6 +23,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ### Added
 - #3371: added master password feature for application-level security with startup unlock, encrypted settings migration, and management UI
 - #3371: added reveal password context menu option for password fields (requires master password)
+- #3449: added Single Package Authoring (SPA) to MSI installer to allow per-user installations without admin privileges
 - #2931: added vault openbao connector
 - #2900: added "Report a Bug" menu item to Help menu and update bug report URL to GitHub issues 
 - #2865: added configurable connection tab colors to distinguish between different environments

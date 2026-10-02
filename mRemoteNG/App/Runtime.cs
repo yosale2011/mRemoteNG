@@ -1,10 +1,10 @@
 ﻿using mRemoteNG.App.Info;
 using mRemoteNG.Config.Putty;
-using mRemoteNG.Config.Settings;
 using mRemoteNG.Connection;
 using mRemoteNG.Credential;
 using mRemoteNG.Credential.Repositories;
 using mRemoteNG.Messages;
+using mRemoteNG.Plugins;
 using mRemoteNG.Security;
 using mRemoteNG.Tools;
 using mRemoteNG.Tree.Root;
@@ -12,11 +12,16 @@ using mRemoteNG.UI;
 using mRemoteNG.UI.Forms;
 using mRemoteNG.UI.TaskDialog;
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Security;
 using System.Threading;
 using System.Windows.Forms;
+using System.Linq;
+using mRemoteNG.Config.Settings;
+using mRemoteNG.Config.UserProfiles;
+using mRemoteNG.Security.Factories;
 using mRemoteNG.Properties;
 using mRemoteNG.Resources.Language;
 using System.Runtime.Versioning;
@@ -47,6 +52,7 @@ namespace mRemoteNG.App
         public static MessageCollector MessageCollector { get; } = new MessageCollector();
         public static NotificationAreaIcon NotificationAreaIcon { get; set; } = null!; // initialized on demand by settings/UI
         public static ExternalToolsService ExternalToolsService { get; } = new ExternalToolsService();
+        public static PluginService PluginService { get; } = new PluginService();
 
         private static SecureString? _masterPasswordKey;
         private static readonly object _encryptionKeyLock = new();
@@ -140,6 +146,8 @@ namespace mRemoteNG.App
         public static ConnectionInitiator ConnectionInitiator { get; set; } = new ConnectionInitiator();
 
         public static ConnectionsService ConnectionsService { get; } = new ConnectionsService(PuttySessionsManager.Instance);
+        public static SqliteUserProfileStore UserProfileStore { get; private set; }
+        public static UserProfileSession UserProfileSession { get; private set; }
 
         /// <summary>
         /// Dev-only options repository manager. Only initialized in DEBUG builds.
@@ -147,6 +155,54 @@ namespace mRemoteNG.App
         public static OptionsRepositoryManager OptionsRepositoryManager { get; set; } = new();
 
         #region Connections Loading/Saving
+
+        public static bool TryInitializeUserProfile()
+        {
+            string profilesPath = SettingsFileInfo.SettingsPath;
+            string databasePath = Path.Combine(profilesPath, SqliteUserProfileStore.DatabaseFileName);
+            Optional<SecureString> passwordResult = MiscTools.PasswordDialog("Profile password", true);
+            if (!passwordResult.Any())
+                return false;
+            SecureString password = passwordResult.First();
+
+            try
+            {
+                UserProfileStore = new SqliteUserProfileStore(
+                    profilesPath,
+                    File.Exists(databasePath) ? null : password);
+                UserProfile user = UserProfileStore.EnsureFirstRunUsers(Environment.UserName);
+                UserProfileSession administratorSession = UserProfileStore.Authenticate("Admin", password);
+                if (administratorSession is not null && !user.HasPassword)
+                    UserProfileStore.SetInitialUserPassword(administratorSession, user.Id, password);
+                UserProfileSession session = UserProfileStore.Authenticate(user.UserName, password);
+                if (session is null)
+                    return false;
+
+                IReadOnlyList<ConnectionProfile> profiles = UserProfileStore.GetProfiles(session);
+                if (profiles.Count == 0)
+                {
+                    string defaultProfilePath = Path.Combine(profilesPath, "connections.profile.db");
+                    profiles = new[] { UserProfileStore.AddProfile(session, "Default", defaultProfilePath) };
+                }
+                ConnectionProfile profile = ProfileSelectionDialog.Select(profiles);
+                if (profile is null)
+                    return false;
+                UserProfileSession = session;
+                ConnectionsService.ProfileDataProvider = UserProfileStore.OpenProfile(
+                    session,
+                    profile.Id,
+                    new CryptoProviderFactoryFromSettings().Build(),
+                    password);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                MessageCollector.AddExceptionMessage("Could not initialize user profiles.", ex);
+                UserProfileStore?.Dispose();
+                UserProfileStore = null;
+                return false;
+            }
+        }
 
         public static void LoadConnectionsAsync()
         {
@@ -197,7 +253,7 @@ namespace mRemoteNG.App
                 {
                     ConnectionsService.LastSqlUpdate = DateTime.Now.ToUniversalTime();
                 } 
-				else
+				else if (ConnectionsService.ProfileDataProvider is null)
                 {
                     ConnectionsService.LastFileUpdate =  System.IO.File.GetLastWriteTime(connectionFileName);
                 }

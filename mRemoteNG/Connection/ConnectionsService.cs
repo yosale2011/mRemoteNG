@@ -19,6 +19,10 @@ using mRemoteNG.UI;
 using mRemoteNG.Resources.Language;
 using System.Runtime.Versioning;
 using mRemoteNG.Config.Serializers.ConnectionSerializers.Sql;
+using mRemoteNG.Properties;
+using mRemoteNG.Config.UserProfiles;
+using mRemoteNG.Config.Serializers.ConnectionSerializers.Xml;
+using mRemoteNG.Security.Factories;
 
 namespace mRemoteNG.Connection
 {
@@ -36,6 +40,7 @@ namespace mRemoteNG.Connection
         public bool IsConnectionsFileLoaded { get; set; }
         public bool UsingDatabase { get; private set; }
         public string ConnectionFileName { get; private set; }
+        public IConnectionProfileDataProvider ProfileDataProvider { get; set; }
         public RemoteConnectionsSyncronizer RemoteConnectionsSyncronizer { get; set; }
         public DateTime LastSqlUpdate { get; set; }
 		public DateTime LastFileUpdate { get; set; }
@@ -128,9 +133,13 @@ namespace mRemoteNG.Connection
             ConnectionTreeModel oldConnectionTreeModel = ConnectionTreeModel;
             bool oldIsUsingDatabaseValue = UsingDatabase;
 
-            IConnectionsLoader connectionLoader = useDatabase
-                ? (IConnectionsLoader)new SqlConnectionsLoader(_localConnectionPropertiesSerializer, _localConnectionPropertiesDataProvider)
-                : new XmlConnectionsLoader(connectionFileName);
+            IConnectionsLoader connectionLoader;
+            if (ProfileDataProvider is not null)
+                connectionLoader = new ProfileConnectionsLoader(ProfileDataProvider);
+            else if (useDatabase)
+                connectionLoader = new SqlConnectionsLoader(_localConnectionPropertiesSerializer, _localConnectionPropertiesDataProvider);
+            else
+                connectionLoader = new XmlConnectionsLoader(connectionFileName);
 
             ConnectionTreeModel newConnectionTreeModel = connectionLoader.Load();
 
@@ -152,7 +161,8 @@ namespace mRemoteNG.Connection
             if (!import)
             {
                 _puttySessionsManager.AddSessions();
-                newConnectionTreeModel.RootNodes.AddRange(_puttySessionsManager.RootPuttySessionsNodes);
+                if (OptionsAdvancedPage.Default.ShowPuttySessionsInTree)
+                    newConnectionTreeModel.RootNodes.AddRange(_puttySessionsManager.RootPuttySessionsNodes);
             }
 
             ConnectionTreeModel = newConnectionTreeModel;
@@ -243,9 +253,13 @@ namespace mRemoteNG.Connection
 
                 bool previouslyUsingDatabase = UsingDatabase;
 
-                ISaver<ConnectionTreeModel> saver = useDatabase
-                    ? (ISaver<ConnectionTreeModel>)new SqlConnectionsSaver(saveFilter, _localConnectionPropertiesSerializer, _localConnectionPropertiesDataProvider)
-                    : new XmlConnectionsSaver(connectionFileName, saveFilter);
+                ISaver<ConnectionTreeModel> saver;
+                if (ProfileDataProvider is not null)
+                    saver = new ProfileConnectionsSaver(ProfileDataProvider, saveFilter);
+                else if (useDatabase)
+                    saver = new SqlConnectionsSaver(saveFilter, _localConnectionPropertiesSerializer, _localConnectionPropertiesDataProvider);
+                else
+                    saver = new XmlConnectionsSaver(connectionFileName, saveFilter);
 
                 saver.Save(connectionTreeModel, propertyNameTrigger);
 

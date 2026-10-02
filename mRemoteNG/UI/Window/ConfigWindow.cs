@@ -326,6 +326,8 @@ namespace mRemoteNG.UI.Window
             _propertyGridContextMenuRevealPassword.Text = Language.RevealPassword;
         }
 
+        internal void RefreshUiLanguage() => ApplyLanguage();
+
         private new void ApplyTheme()
         {
             if (!ThemeManager.getInstance().ActiveAndExtended) return;

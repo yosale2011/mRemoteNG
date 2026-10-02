@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Drawing;
 using System.Linq;
 using System.Windows.Forms;
 using mRemoteNG.App;
@@ -15,8 +16,10 @@ using mRemoteNG.Properties;
 using mRemoteNG.Themes;
 using mRemoteNG.Tools;
 using mRemoteNG.UI.Forms;
+using mRemoteNG.UI.Panels;
 using mRemoteNG.UI.Tabs;
 using mRemoteNG.UI.TaskDialog;
+using mRemoteNG.UI.Controls;
 using WeifenLuo.WinFormsUI.Docking;
 using mRemoteNG.Resources.Language;
 using System.Runtime.Versioning;
@@ -29,6 +32,9 @@ namespace mRemoteNG.UI.Window
     {
         private VisualStudioToolStripExtender _vsToolStripExtender;
         private readonly ToolStripRenderer _toolStripProfessionalRenderer = new ToolStripProfessionalRenderer();
+        private static readonly Font GeneralPanelHeaderFont = new(SystemFonts.MessageBoxFont.FontFamily, SystemFonts.MessageBoxFont.Size + 2f, FontStyle.Bold);
+
+        public bool IsGeneralPanel => string.Equals(TabText, PanelAdder.DefaultPanelName, StringComparison.OrdinalIgnoreCase);
 
         #region Public Methods
 
@@ -46,6 +52,8 @@ namespace mRemoteNG.UI.Window
             // ReSharper disable once VirtualMemberCallInConstructor
             Text = formText;
             TabText = formText;
+            CloseButton = !IsGeneralPanel;
+            CloseButtonVisible = !IsGeneralPanel;
             connDock.DocumentStyle = DocumentStyle.DockingWindow;
             connDock.ShowDocumentIcon = true;
 
@@ -88,6 +96,7 @@ namespace mRemoteNG.UI.Window
             cmenTabDuplicateTab.Click += (sender, args) => DuplicateTab();
             cmenTabReconnect.Click += (sender, args) => Reconnect();
             cmenTabDisconnect.Click += (sender, args) => CloseTabMenu();
+            cmenTabMinimize.Click += (sender, args) => MinimizeTabMenu();
             cmenTabDisconnectOthers.Click += (sender, args) => CloseOtherTabs();
             cmenTabDisconnectOthersRight.Click += (sender, args) => CloseOtherTabsToTheRight();
             cmenTabPuttySettings.Click += (sender, args) => ShowPuttySettingsDialog();
@@ -153,6 +162,7 @@ namespace mRemoteNG.UI.Window
 
                 //Show the tab
                 conTab.Show(connDock, DockState.Document);
+                FrmMain.Default?.ShowHidePanelTabs();
                 conTab.Focus();
                 return conTab;
             }
@@ -199,6 +209,7 @@ namespace mRemoteNG.UI.Window
             ApplyTheme();
             ThemeManager.getInstance().ThemeChanged += ApplyTheme;
             ApplyLanguage();
+            UpdateHeaderStyling();
         }
 
         private new void ApplyTheme()
@@ -283,13 +294,29 @@ namespace mRemoteNG.UI.Window
             cmenTabDuplicateTab.Text = Language.DuplicateTab;
             cmenTabReconnect.Text = Language.Reconnect;
             cmenTabDisconnect.Text = Language.Disconnect;
+            cmenTabMinimize.Text = Language.MinimizeTab;
             cmenTabDisconnectOthers.Text = Language.DisconnectOthers;
             cmenTabDisconnectOthersRight.Text = Language.DisconnectOthersRight;
             cmenTabPuttySettings.Text = Language.PuttySettings;
+            UpdateHeaderStyling();
+        }
+
+        private void UpdateHeaderStyling()
+        {
+            if (IsGeneralPanel)
+            {
+                Font = GeneralPanelHeaderFont;
+            }
         }
 
         private void Connection_FormClosing(object sender, FormClosingEventArgs e)
         {
+            if (IsGeneralPanel && !FrmMain.Default.IsClosing)
+            {
+                e.Cancel = true;
+                return;
+            }
+
             if (!FrmMain.Default.IsClosing &&
                 (Settings.Default.ConfirmCloseConnection == (int)ConfirmCloseEnum.All & connDock.Documents.Any() ||
                  Settings.Default.ConfirmCloseConnection == (int)ConfirmCloseEnum.Multiple &
@@ -543,14 +570,8 @@ namespace mRemoteNG.UI.Window
                 InterfaceControl interfaceControl = GetInterfaceControl();
                 if (interfaceControl == null) return;
 
-                AppWindows.Show(WindowType.SSHTransfer);
                 ConnectionInfo connectionInfo = interfaceControl.Info;
-
-                AppWindows.SshtransferForm.Hostname = connectionInfo.Hostname;
-                AppWindows.SshtransferForm.Username = connectionInfo.Username;
-                //App.Windows.SshtransferForm.Password = connectionInfo.Password.ConvertToUnsecureString();
-                AppWindows.SshtransferForm.Password = connectionInfo.Password;
-                AppWindows.SshtransferForm.Port = Convert.ToString(connectionInfo.Port);
+                Runtime.PluginService.ShowToolWindow("mRp.SshTransfer", connectionInfo);
             }
             catch (Exception ex)
             {
@@ -674,22 +695,10 @@ namespace mRemoteNG.UI.Window
                     cmenTabExternalApps.DropDownItems.Clear();
                 }
 
-                //add ext apps
-                foreach (ExternalTool externalTool in Runtime.ExternalToolsService.ExternalTools)
-                {
-                    ToolStripMenuItem nItem = new()
-                    {
-                        Text = externalTool.DisplayName,
-                        Tag = externalTool,
-                        /* rare failure here. While ExternalTool.Image already tries to default this
-                         * try again so it's not null/doesn't crash.
-                         */
-                        Image = externalTool.Image ?? Properties.Resources.mRemoteNG_Icon.ToBitmap()
-                    };
-
-                    nItem.Click += (sender, args) => StartExternalApp(((ToolStripMenuItem)sender)?.Tag as ExternalTool);
-                    cmenTabExternalApps.DropDownItems.Add(nItem);
-                }
+                cmenTabExternalApps.DropDownItems.AddRange(
+                    ExternalToolsMenuBuilder.CreateMenuItems(
+                        Runtime.ExternalToolsService.ExternalTools,
+                        (sender, args) => StartExternalApp(((ToolStripMenuItem)sender)?.Tag as ExternalTool)));
             }
             catch (Exception ex)
             {
@@ -713,7 +722,7 @@ namespace mRemoteNG.UI.Window
 
         private void CloseTabMenu()
         {
-            ConnectionTab selectedTab = (ConnectionTab)GetInterfaceControl()?.Parent;
+            ConnectionTab selectedTab = GetSelectedConnectionTab();
             if (selectedTab == null) return;
 
             try
@@ -726,9 +735,24 @@ namespace mRemoteNG.UI.Window
             }
         }
 
+        private void MinimizeTabMenu()
+        {
+            ConnectionTab selectedTab = GetSelectedConnectionTab();
+            if (selectedTab == null) return;
+
+            try
+            {
+                selectedTab.MinimizeToBottomAutoHide();
+            }
+            catch (Exception ex)
+            {
+                Runtime.MessageCollector.AddExceptionMessage("MinimizeTabMenu (UI.Window.ConnectionWindow) failed", ex);
+            }
+        }
+
         private void CloseOtherTabs()
         {
-            ConnectionTab selectedTab = (ConnectionTab)GetInterfaceControl()?.Parent;
+            ConnectionTab selectedTab = GetSelectedConnectionTab();
             if (selectedTab == null) return;
             if (Settings.Default.ConfirmCloseConnection == (int)ConfirmCloseEnum.Multiple)
             {
@@ -764,7 +788,7 @@ namespace mRemoteNG.UI.Window
         {
             try
             {
-                ConnectionTab selectedTab = (ConnectionTab)GetInterfaceControl()?.Parent;
+                ConnectionTab selectedTab = GetSelectedConnectionTab();
                 if (selectedTab == null) return;
                 DockPane dockPane = selectedTab.Pane;
 
@@ -846,6 +870,11 @@ namespace mRemoteNG.UI.Window
             }
         }
 
+        private ConnectionTab GetSelectedConnectionTab()
+        {
+            return GetInterfaceControl()?.Parent as ConnectionTab;
+        }
+
         #endregion
 
         #region Protocols
@@ -855,9 +884,21 @@ namespace mRemoteNG.UI.Window
             ProtocolBase protocolBase = sender as ProtocolBase;
             if (!(protocolBase?.InterfaceControl.Parent is ConnectionTab tabPage)) return;
             if (tabPage.Disposing || tabPage.IsDisposed) return;
-            if (IsDisposed || Disposing) return;
+            if (IsDisposed || Disposing || !IsHandleCreated) return;
             tabPage.protocolClose = true;
-            Invoke(new Action(() => tabPage.Close()));
+
+            if (InvokeRequired)
+            {
+                BeginInvoke(new Action(() =>
+                {
+                    if (tabPage.Disposing || tabPage.IsDisposed) return;
+                    tabPage.Close();
+                }));
+            }
+            else
+            {
+                tabPage.Close();
+            }
         }
 
         #endregion
