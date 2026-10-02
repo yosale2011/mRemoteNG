@@ -6,11 +6,13 @@ using mRemoteNG.Connection.Protocol;
 using mRemoteNG.Connection.Protocol.RDP;
 using mRemoteNG.UI.Tabs;
 using NSubstitute;
+using System.Threading;
 using NUnit.Framework;
 
 namespace mRemoteNGTests.Connection.Protocol
 {
     [TestFixture]
+    [Apartment(ApartmentState.STA)]
     public class RdpProtocol8ResizeTests
     {
         private TestableRdpProtocol8 _rdpProtocol;

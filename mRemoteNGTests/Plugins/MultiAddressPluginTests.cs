@@ -211,7 +211,7 @@ public class MultiAddressPluginTests
         using CancellationTokenSource cancellationTokenSource = new();
         cancellationTokenSource.Cancel();
 
-        Assert.ThrowsAsync<OperationCanceledException>(async () => await plugin.ResolveAsync(connection, cancellationTokenSource.Token));
+        Assert.CatchAsync<OperationCanceledException>(async () => await plugin.ResolveAsync(connection, cancellationTokenSource.Token));
         messageWriter.DidNotReceive().Warning(Arg.Any<string>(), Arg.Any<bool>());
     }
 
