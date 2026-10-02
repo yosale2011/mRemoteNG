@@ -12,8 +12,17 @@ internal static class PluginConnectionDataSerializer
             return new Dictionary<string, string>();
         }
 
-        return JsonConvert.DeserializeObject<Dictionary<string, string>>(serializedProperties) ??
-               new Dictionary<string, string>();
+        try
+        {
+            return JsonConvert.DeserializeObject<Dictionary<string, string>>(serializedProperties) ??
+                   new Dictionary<string, string>();
+        }
+        catch (JsonException)
+        {
+            // Malformed plugin data (e.g. a misaligned CSV column) should not prevent the
+            // connection itself from loading; the plugin simply sees no stored properties.
+            return new Dictionary<string, string>();
+        }
     }
 
     public static string Serialize(IReadOnlyDictionary<string, string> properties)
