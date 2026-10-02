@@ -1,5 +1,6 @@
 using mRemoteNG.Connection;
 using mRemoteNG.UI.Controls;
+using mRemoteNG.Container;
 using NUnit.Framework;
 
 namespace mRemoteNGTests.UI.Controls

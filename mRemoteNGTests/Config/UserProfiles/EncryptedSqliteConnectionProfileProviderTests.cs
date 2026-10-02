@@ -5,6 +5,7 @@ using System.Security.Cryptography;
 using mRemoteNG.Config.UserProfiles;
 using mRemoteNG.Security.SymmetricEncryption;
 using mRemoteNG.Tools;
+using mRemoteNG.Security;
 using NUnit.Framework;
 
 namespace mRemoteNGTests.Config.UserProfiles

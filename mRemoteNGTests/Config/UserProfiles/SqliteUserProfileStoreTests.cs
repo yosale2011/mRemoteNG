@@ -5,6 +5,7 @@ using System.Runtime.Versioning;
 using System.Security;
 using mRemoteNG.Config.UserProfiles;
 using mRemoteNG.Tools;
+using mRemoteNG.Security;
 using NUnit.Framework;
 
 namespace mRemoteNGTests.Config.UserProfiles
