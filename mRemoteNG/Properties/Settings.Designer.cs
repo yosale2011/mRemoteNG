@@ -2437,6 +2437,18 @@ namespace mRemoteNG.Properties {
                 this["DisabledPlugins"] = value;
             }
         }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("False")]
+        public bool EnableUserProfiles {
+            get {
+                return ((bool)(this["EnableUserProfiles"]));
+            }
+            set {
+                this["EnableUserProfiles"] = value;
+            }
+        }
 
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]

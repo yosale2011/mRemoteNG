@@ -605,6 +605,9 @@
     <Setting Name="DisabledPlugins" Type="System.String" Scope="User">
       <Value Profile="(Default)" />
     </Setting>
+    <Setting Name="EnableUserProfiles" Type="System.Boolean" Scope="User">
+      <Value Profile="(Default)">False</Value>
+    </Setting>
     <Setting Name="PluginFolderPath" Type="System.String" Scope="User">
       <Value Profile="(Default)" />
     </Setting>
