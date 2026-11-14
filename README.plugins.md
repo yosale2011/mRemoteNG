@@ -4,11 +4,13 @@ This repository now separates the app solution from the plugin solution.
 
 ## Build the plugins
 
-From the repository root:
+From the repository root on Windows using the Visual Studio 2026 toolchain:
 
 ```powershell
-dotnet build mRemoteNG.Plugins.sln -c Release -p:Platform=x64
+& "$env:ProgramFiles(x86)\Microsoft Visual Studio\2026\Enterprise\MSBuild\Current\Bin\MSBuild.exe" mRemoteNG.Plugins.sln /p:Configuration=Release /p:Platform=x64
 ```
+
+If you do not use the Enterprise edition folder name, replace it with your installed VS2026 edition (Community, Professional, or Enterprise).
 
 This builds the shared contract assembly and the plugin assemblies:
 
@@ -25,11 +27,11 @@ After building, copy the generated plugin DLLs into the app's default plugin fol
 The example below uses the x64 output path. For ARM64 builds, replace `x64` with `arm64`.
 
 ```powershell
-Copy-Item .\mRemoteNG.PluginContracts\bin\x64\Release\net10.0-windows10.0.26100.0\mRp.Contracts.dll .\mRemoteNG\bin\x64\Release\Assemblies\
-Copy-Item .\mRemoteNG.Plugins.PortScan\bin\x64\Release\net10.0-windows10.0.26100.0\mRp.PortScan.dll .\mRemoteNG\bin\x64\Release\Plugins\
-Copy-Item .\mRemoteNG.Plugins.SshTransfer\bin\x64\Release\net10.0-windows10.0.26100.0\mRp.SshTransfer.dll .\mRemoteNG\bin\x64\Release\Plugins\
-Copy-Item .\mRemoteNG.Plugins.AWS\bin\x64\Release\net10.0-windows10.0.26100.0\mRp.AWS.dll .\mRemoteNG\bin\x64\Release\Plugins\
-Copy-Item .\mRemoteNG.Plugins.MultiAddress\bin\x64\Release\net10.0-windows10.0.26100.0\mRp.MultiAddress.dll .\mRemoteNG\bin\x64\Release\Plugins\
+Copy-Item .\mRemoteNG.PluginContracts\bin\x64\Release\net11.0-windows10.0.26100.0\mRp.Contracts.dll .\mRemoteNG\bin\x64\Release\Assemblies\
+Copy-Item .\mRemoteNG.Plugins.PortScan\bin\x64\Release\net11.0-windows10.0.26100.0\mRp.PortScan.dll .\mRemoteNG\bin\x64\Release\Plugins\
+Copy-Item .\mRemoteNG.Plugins.SshTransfer\bin\x64\Release\net11.0-windows10.0.26100.0\mRp.SshTransfer.dll .\mRemoteNG\bin\x64\Release\Plugins\
+Copy-Item .\mRemoteNG.Plugins.AWS\bin\x64\Release\net11.0-windows10.0.26100.0\mRp.AWS.dll .\mRemoteNG\bin\x64\Release\Plugins\
+Copy-Item .\mRemoteNG.Plugins.MultiAddress\bin\x64\Release\net11.0-windows10.0.26100.0\mRp.MultiAddress.dll .\mRemoteNG\bin\x64\Release\Plugins\
 ```
 
 The app looks for plugin DLLs in:

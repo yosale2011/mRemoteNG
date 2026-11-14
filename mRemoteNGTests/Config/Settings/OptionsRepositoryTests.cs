@@ -74,13 +74,13 @@ namespace mRemoteNGTests.Config.Settings
         }
 
         [Test]
-        public void AddOptionAsync_EmptyKey_ThrowsException()
+        public async Task AddOptionAsync_EmptyKey_ThrowsException()
         {
             // Arrange
             var option = new OptionInfo { Key = "" };
 
             // Act & Assert
-            Assert.ThrowsAsync<ArgumentException>(async () => await _repository.AddOptionAsync(option));
+            await Assert.ThrowsAsync<ArgumentException>(async () => await _repository.AddOptionAsync(option));
         }
 
         [Test]
@@ -128,10 +128,10 @@ namespace mRemoteNGTests.Config.Settings
         }
 
         [Test]
-        public void GetOptionByKeyAsync_EmptyKey_ThrowsException()
+        public async Task GetOptionByKeyAsync_EmptyKey_ThrowsException()
         {
             // Act & Assert
-            Assert.ThrowsAsync<ArgumentException>(async () => await _repository.GetOptionByKeyAsync(""));
+            await Assert.ThrowsAsync<ArgumentException>(async () => await _repository.GetOptionByKeyAsync(""));
         }
 
         #endregion

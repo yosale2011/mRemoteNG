@@ -602,6 +602,9 @@ See the Microsoft Support article at http://support.microsoft.com/kb/811833 for 
   <data name="FilterRDP" xml:space="preserve">
     <value>RDP Files (*.rdp)</value>
   </data>
+  <data name="FilterRoyalTs" xml:space="preserve">
+    <value>Royal TS documents (*.rtsz)</value>
+  </data>
   <data name="FormatInherit" xml:space="preserve">
     <value>Inherit {0}</value>
   </data>
@@ -733,6 +736,41 @@ See the Microsoft Support article at http://support.microsoft.com/kb/811833 for 
   </data>
   <data name="Verify" xml:space="preserve">
     <value>Verify:</value>
+  </data>
+  <data name="ProfilePromptStopAsking" xml:space="preserve">
+    <value>Stop asking for a profile password at startup?
+
+Connections saved in the profile are kept. You can turn the prompt back on in Options &gt; Startup/Exit.</value>
+  </data>
+  <data name="AskProfilePasswordAtStartup" xml:space="preserve">
+    <value>Ask for a profile password at startup</value>
+  </data>
+  <data name="ShowPassword" xml:space="preserve">
+    <value>Show password</value>
+  </data>
+  <data name="HidePassword" xml:space="preserve">
+    <value>Hide password</value>
+  </data>
+  <data name="PasswordStrength" xml:space="preserve">
+    <value>Strength: {0}</value>
+  </data>
+  <data name="PasswordStrengthWeak" xml:space="preserve">
+    <value>Weak</value>
+  </data>
+  <data name="PasswordStrengthFair" xml:space="preserve">
+    <value>Fair</value>
+  </data>
+  <data name="PasswordStrengthGood" xml:space="preserve">
+    <value>Good</value>
+  </data>
+  <data name="PasswordStrengthStrong" xml:space="preserve">
+    <value>Strong</value>
+  </data>
+  <data name="PasswordStrengthNotEstimated" xml:space="preserve">
+    <value>Not estimated (over 256 characters)</value>
+  </data>
+  <data name="PasswordStrengthUnavailable" xml:space="preserve">
+    <value>Unable to estimate</value>
   </data>
   <data name="LanguageString" xml:space="preserve">
     <value>Language</value>
@@ -883,6 +921,12 @@ See the Microsoft Support article at http://support.microsoft.com/kb/811833 for 
   </data>
   <data name="_Tools" xml:space="preserve">
     <value>&amp;Tools</value>
+  </data>
+  <data name="Actions" xml:space="preserve">
+    <value>Actions</value>
+  </data>
+  <data name="Minimise" xml:space="preserve">
+    <value>Minimise</value>
   </data>
   <data name="TransferFile" xml:space="preserve">
     <value>Transfer File (SSH)</value>
@@ -1054,7 +1098,7 @@ If you run into such an error, please create a new connection file!</value>
     <value>Both passwords must match.</value>
   </data>
   <data name="PasswordStatusTooShort" xml:space="preserve">
-    <value>The password must be at least 3 characters long.</value>
+    <value>The password must be at least 4 characters long.</value>
   </data>
   <data name="PleaseFillAllFields" xml:space="preserve">
     <value>Please fill all fields</value>
@@ -1064,6 +1108,30 @@ If you run into such an error, please create a new connection file!</value>
   </data>
   <data name="PortScanCouldNotLoadPanel" xml:space="preserve">
     <value>Couldn't load PortScan panel!</value>
+  </data>
+  <data name="PortScanAddressRange" xml:space="preserve">
+    <value>Scan target</value>
+  </data>
+  <data name="PortScanAddressRangeHint" xml:space="preserve">
+    <value>Enter a single address, a range (192.168.1.1 - 192.168.1.254) or a CIDR block (192.168.1.0/24). IPv4 and IPv6 are supported.</value>
+  </data>
+  <data name="PortScanAddressRangePlaceholder" xml:space="preserve">
+    <value>192.168.1.0/24</value>
+  </data>
+  <data name="PortScanAllPorts" xml:space="preserve">
+    <value>All ports</value>
+  </data>
+  <data name="PortScanCommonPorts" xml:space="preserve">
+    <value>Common ports</value>
+  </data>
+  <data name="PortScanCustomPorts" xml:space="preserve">
+    <value>Custom</value>
+  </data>
+  <data name="PortScanCustomPortsHint" xml:space="preserve">
+    <value>Enter a list of ports and/or ranges, e.g. 22, 80, 443, 3389, 8000-8100.</value>
+  </data>
+  <data name="PortScanCustomPortsPlaceholder" xml:space="preserve">
+    <value>22, 80, 443, 3389, 8000-8100</value>
   </data>
   <data name="PropertyDescriptionHostnameIp" xml:space="preserve">
     <value>Enter the hostname or ip you want to connect to.</value>
@@ -1185,6 +1253,9 @@ If you run into such an error, please create a new connection file!</value>
   <data name="PropertyDescriptionRedirectSmartCards" xml:space="preserve">
     <value>Select whether local smart cards should be available on the remote host.</value>
   </data>
+  <data name="PropertyDescriptionRedirectWebAuthn" xml:space="preserve">
+    <value>Select whether WebAuthn requests (passkeys, Windows Hello, FIDO2 security keys) made in the remote session should be redirected to this computer. Requires Windows 11 22H2 / Windows Server 2025 or later on the remote host.</value>
+  </data>
   <data name="PropertyDescriptionRedirectSounds" xml:space="preserve">
     <value>Select how remote sound should be redirected.</value>
   </data>
@@ -1193,6 +1264,18 @@ If you run into such an error, please create a new connection file!</value>
   </data>
   <data name="PropertyDescriptionRenderingEngine" xml:space="preserve">
     <value>Select one of the available rendering engines that will be used to display HTML.</value>
+  </data>
+  <data name="PropertyDescriptionTerminalBackend" xml:space="preserve">
+    <value>Selects the terminal backend used to open this SSH connection inside the mRemoteNG panel. PuTTYNG keeps the embedded PuTTYNG terminal, while Windows Terminal embeds the Windows console running the system OpenSSH client.</value>
+  </data>
+  <data name="TerminalBackend" xml:space="preserve">
+    <value>Terminal backend</value>
+  </data>
+  <data name="TerminalBackendPuttyNg" xml:space="preserve">
+    <value>PuTTYNG</value>
+  </data>
+  <data name="TerminalBackendWindowsTerminal" xml:space="preserve">
+    <value>Windows Terminal</value>
   </data>
   <data name="PropertyDescriptionResolution" xml:space="preserve">
     <value>Choose the resolution or mode this connection will open in.</value>
@@ -1259,6 +1342,18 @@ If you run into such an error, please create a new connection file!</value>
   </data>
   <data name="HostnameIp" xml:space="preserve">
     <value>Hostname/IP</value>
+  </data>
+  <data name="HostnameAlreadyExists" xml:space="preserve">
+    <value>"{0}" is already used by these connections:{1}</value>
+  </data>
+  <data name="IpAddress" xml:space="preserve">
+    <value>IP Address</value>
+  </data>
+  <data name="UseIpAddressForImport" xml:space="preserve">
+    <value>Use IP address for imported connections</value>
+  </data>
+  <data name="ImportAllOpenPorts" xml:space="preserve">
+    <value>Import all open ports as selected protocol</value>
   </data>
   <data name="All" xml:space="preserve">
     <value>All</value>
@@ -1398,8 +1493,26 @@ If you run into such an error, please create a new connection file!</value>
   <data name="UseRedirectionServerName" xml:space="preserve">
     <value>Use Redirection Server Name</value>
   </data>
+  <data name="UseUserProfiles" xml:space="preserve">
+    <value>Use user profiles to store connections (experimental, takes effect after restart)</value>
+  </data>
   <data name="ClearCachedRdpCredentials" xml:space="preserve">
     <value>Clear Cached RDP Credentials</value>
+  </data>
+  <data name="WakeOnLan" xml:space="preserve">
+    <value>Wake up (Wake-on-LAN)</value>
+  </data>
+  <data name="PropertyDescriptionWakeOnLan" xml:space="preserve">
+    <value>Sends a Wake-on-LAN magic packet to the MAC address configured on this connection so that a sleeping or powered-off machine can be woken before connecting. The target machine must have Wake-on-LAN enabled.</value>
+  </data>
+  <data name="WakeOnLanNoMacAddress" xml:space="preserve">
+    <value>No MAC address is configured for this connection. Set the MAC Address property to use Wake-on-LAN.</value>
+  </data>
+  <data name="WakeOnLanSent" xml:space="preserve">
+    <value>A Wake-on-LAN magic packet was sent to {0}.</value>
+  </data>
+  <data name="WakeOnLanFailed" xml:space="preserve">
+    <value>Failed to send a Wake-on-LAN magic packet to {0}.</value>
   </data>
   <data name="UserField" xml:space="preserve">
     <value>User Field</value>
@@ -1451,6 +1564,12 @@ If you run into such an error, please create a new connection file!</value>
   </data>
   <data name="PuttyKillFailed" xml:space="preserve">
     <value>Killing Putty Process failed!</value>
+  </data>
+  <data name="PuttyPasswordPipeFailed" xml:space="preserve">
+    <value>Error serving the password pipe to PuTTY</value>
+  </data>
+  <data name="PuttyPasswordPipeTimedOut" xml:space="preserve">
+    <value>PuTTY did not read the password pipe in time; the password was not sent.</value>
   </data>
   <data name="PanelHandle" xml:space="preserve">
     <value>Panel Handle: {0}</value>
@@ -1611,6 +1730,12 @@ If you run into such an error, please create a new connection file!</value>
   <data name="RdpSetRedirectionFailed" xml:space="preserve">
     <value>RDP Set Redirection Failed!</value>
   </data>
+  <data name="RdpWebAuthnPluginFailed" xml:space="preserve">
+    <value>Failed to enable WebAuthn redirection (PluginDlls)</value>
+  </data>
+  <data name="RdpWebAuthnPluginNotFound" xml:space="preserve">
+    <value>WebAuthn redirection plugin not found at '{0}'</value>
+  </data>
   <data name="RdpSetRedirectKeysFailed" xml:space="preserve">
     <value>RDP Set Redirect Keys Failed!</value>
   </data>
@@ -1709,6 +1834,18 @@ If you run into such an error, please create a new connection file!</value>
   </data>
   <data name="SendTo" xml:space="preserve">
     <value>Send To...</value>
+  </data>
+  <data name="SendToRightClickFullscreenHint" xml:space="preserve">
+    <value>Right-click to also switch RDP to fullscreen</value>
+  </data>
+  <data name="SendToRightClickWindowedHint" xml:space="preserve">
+    <value>Right-click to send without switching RDP to fullscreen</value>
+  </data>
+  <data name="SendToScreenUsesRdpFullscreen" xml:space="preserve">
+    <value>"Send To" a screen switches RDP connections to fullscreen</value>
+  </data>
+  <data name="PrimaryScreen" xml:space="preserve">
+    <value>Primary</value>
   </data>
   <data name="SetHostnameLikeDisplayName" xml:space="preserve">
     <value>Set hostname like display name when creating or renaming connections</value>
@@ -1880,7 +2017,7 @@ mRemoteNG will now quit and begin with the installation.</value>
     <value>Use a smart card</value>
   </data>
   <data name="UseSQLServer" xml:space="preserve">
-    <value>Use SQL Server to load &amp;&amp; save connections</value>
+    <value>Use a database to load &amp;&amp; save connections</value>
   </data>
   <data name="Version" xml:space="preserve">
     <value>Current Version</value>
@@ -1971,6 +2108,9 @@ mRemoteNG will now quit and begin with the installation.</value>
   </data>
   <data name="MinutesToIdleTimeout" xml:space="preserve">
     <value>Minutes to Idle</value>
+  </data>
+  <data name="AlertIdleTimeout" xml:space="preserve">
+    <value>Alert on Idle Disconnect</value>
   </data>
   <data name="Add" xml:space="preserve">
     <value>Add</value>
@@ -2112,6 +2252,9 @@ mRemoteNG will now quit and begin with the installation.</value>
   </data>
   <data name="LoadBalanceInfoUseUtf8" xml:space="preserve">
     <value>Use UTF8 encoding for RDP "Load Balance Info" property</value>
+  </data>
+  <data name="RdpSendDesktopScaleFactor" xml:space="preserve">
+    <value>Send my display scaling (DPI) to the remote computer (disable if the remote desktop appears zoomed in, e.g. GNOME Remote Desktop on Linux)</value>
   </data>
   <data name="TimeoutInSeconds" xml:space="preserve">
     <value>Timeout [seconds]</value>
@@ -2387,6 +2530,9 @@ Nightly Channel includes Alphas, Betas &amp; Release Candidates.</value>
   </data>
   <data name="RedirectSmartCards" xml:space="preserve">
     <value>Smart Cards</value>
+  </data>
+  <data name="RedirectWebAuthn" xml:space="preserve">
+    <value>WebAuthn (Windows Hello / security keys)</value>
   </data>
   <data name="ApplyInheritanceToChildren" xml:space="preserve">
     <value>Apply inheritance to children</value>

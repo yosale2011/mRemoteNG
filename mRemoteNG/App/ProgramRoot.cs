@@ -1,5 +1,6 @@
 ﻿﻿using Microsoft.IdentityModel.Tokens;
 
+using mRemoteNG.App.Initialization;
 using mRemoteNG.App.Update;
 using mRemoteNG.Config.Settings;
 using mRemoteNG.Messages;
@@ -43,6 +44,7 @@ namespace mRemoteNG.App
             // PerMonitorV2 awareness; this call keeps the WinForms runtime in sync.
             Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
 
+            AppDomain.CurrentDomain.AssemblyResolve += OnAssemblyResolve;
             InitializeSqliteProvider();
 
             // Ensure the real entry point is definitely STA
@@ -51,8 +53,6 @@ namespace mRemoteNG.App
 
         private static Task MainAsync(string[] args)
         {
-            AppDomain.CurrentDomain.AssemblyResolve += OnAssemblyResolve;
-
             if (!ShouldSkipNativeRuntimeChecks(args))
             {
                 // Runtime checks only needed for framework-dependent deployments
@@ -95,6 +95,9 @@ namespace mRemoteNG.App
                     Environment.Exit(0);
                 }
             }
+
+            // On a new version's first start, carry the options over before anything reads one.
+            SettingsUpgrader.UpgradeIfNeeded(Runtime.MessageCollector);
 
             Lazy<bool> singleInstanceOption = new(() => Properties.OptionsStartupExitPage.Default.SingleInstance);
             if (singleInstanceOption.Value)
@@ -177,6 +180,12 @@ namespace mRemoteNG.App
 
                 if (File.Exists(assemblyPath))
                     return Assembly.LoadFrom(assemblyPath);
+
+                // Fall back to the Plugins\ folder for plugin-shared assemblies (e.g. mRp.Contracts)
+                // that are deployed alongside the plugin DLLs instead of under Assemblies\.
+                string pluginsAssemblyPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Plugins", assemblyFile);
+                if (File.Exists(pluginsAssemblyPath))
+                    return Assembly.LoadFrom(pluginsAssemblyPath);
             }
             catch
             {
@@ -245,6 +254,10 @@ namespace mRemoteNG.App
         private static void StartApplication()
         {
             CatchAllUnhandledExceptions();
+
+            // After an upgrade from 1.76, bring its files over before anything reads the data folder.
+            DataFolder176Copier.CopyIfNeeded(Runtime.MessageCollector);
+
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
 

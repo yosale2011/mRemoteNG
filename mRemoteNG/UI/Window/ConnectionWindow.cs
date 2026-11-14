@@ -108,7 +108,7 @@ namespace mRemoteNG.UI.Window
             TabHelper.Instance.CurrentPanel = this;
         }
 
-        public ConnectionTab AddConnectionTab(ConnectionInfo connectionInfo)
+        public ConnectionTab AddConnectionTab(ConnectionInfo connectionInfo, DockPane targetPane = null, int? targetContentIndex = null)
         {
             try
             {
@@ -162,6 +162,12 @@ namespace mRemoteNG.UI.Window
 
                 //Show the tab
                 conTab.Show(connDock, DockState.Document);
+                if (targetPane?.DockPanel == connDock && targetContentIndex.HasValue)
+                {
+                    int contentIndex = Math.Max(0, Math.Min(targetContentIndex.Value, targetPane.DisplayingContents.Count));
+                    conTab.DockTo(targetPane, DockStyle.Fill, contentIndex);
+                }
+
                 FrmMain.Default?.ShowHidePanelTabs();
                 conTab.Focus();
                 return conTab;
@@ -174,6 +180,32 @@ namespace mRemoteNG.UI.Window
             return null;
         }
 
+        internal (DockPane? targetPane, int? targetContentIndex, DockContent? targetPanePlaceholder) PrepareReconnectPlacement(ConnectionTab? selectedTab)
+        {
+            DockPane? targetPane = selectedTab?.Pane;
+            int existingIndex = targetPane?.DisplayingContents.IndexOf(selectedTab) ?? -1;
+            int? targetContentIndex = existingIndex >= 0 ? existingIndex : null;
+            DockContent? targetPanePlaceholder = null;
+
+            if (targetPane?.DockPanel == connDock && existingIndex >= 0 && targetPane.DisplayingContents.Count == 1)
+            {
+                targetPanePlaceholder = new DockContent
+                {
+                    CloseButton = false,
+                    CloseButtonVisible = false,
+                    DockAreas = DockAreas.Document | DockAreas.Float,
+                    HideOnClose = true,
+                    TabText = string.Empty,
+                    Text = string.Empty
+                };
+
+                targetPanePlaceholder.Show(connDock, DockState.Document);
+                targetPanePlaceholder.DockTo(targetPane, DockStyle.Fill, existingIndex + 1);
+            }
+
+            return (targetPane, targetContentIndex, targetPanePlaceholder);
+        }
+
         #endregion
 
         public void ReconnectAll(IConnectionInitiator initiator)
@@ -181,10 +213,12 @@ namespace mRemoteNG.UI.Window
             List<InterfaceControl> controlList = new();
             try
             {
-                foreach (IDockContent dockContent in connDock.DocumentsToArray())
+                foreach (ConnectionTab tab in connDock.DocumentsToArray().OfType<ConnectionTab>())
                 {
-                    ConnectionTab tab = (ConnectionTab)dockContent;
-                    controlList.Add((InterfaceControl)tab.Tag);
+                    // Tag holds the ConnectionInfo until the protocol attaches its InterfaceControl.
+                    // Such a tab is still connecting or failed to connect: nothing to close or reconnect.
+                    if (tab.Tag is InterfaceControl interfaceControl)
+                        controlList.Add(interfaceControl);
                 }
 
                 foreach (InterfaceControl iControl in controlList)
@@ -258,6 +292,7 @@ namespace mRemoteNG.UI.Window
 
                         DockHandler.FloatPane.FloatWindow.ResizeBegin += Connection_ResizeBegin;
                         DockHandler.FloatPane.FloatWindow.ResizeEnd += Connection_ResizeEnd;
+                        DockHandler.FloatPane.FloatWindow.SizeChanged += FloatWindow_SizeChanged;
                         _floatHandlersAdded = true;
                         break;
                     }
@@ -267,6 +302,7 @@ namespace mRemoteNG.UI.Window
                         {
                             DockHandler.FloatPane.FloatWindow.ResizeBegin -= Connection_ResizeBegin;
                             DockHandler.FloatPane.FloatWindow.ResizeEnd -= Connection_ResizeEnd;
+                            DockHandler.FloatPane.FloatWindow.SizeChanged -= FloatWindow_SizeChanged;
                             _floatHandlersAdded = false;
                         }
 
@@ -340,8 +376,7 @@ namespace mRemoteNG.UI.Window
             {
                 foreach (IDockContent dockContent in connDock.Documents.ToArray())
                 {
-                    ConnectionTab tabP = (ConnectionTab)dockContent;
-                    if (tabP.Tag == null) continue;
+                    if (dockContent is not ConnectionTab tabP || tabP.Tag == null) continue;
                     tabP.silentClose = true;
                     tabP.Close();
                 }
@@ -356,6 +391,7 @@ namespace mRemoteNG.UI.Window
 
         private void Connection_ResizeBegin(object sender, EventArgs e)
         {
+            _hostResizeInProgress = true;
             ResizeBegin?.Invoke(this, e);
         }
 
@@ -363,7 +399,32 @@ namespace mRemoteNG.UI.Window
 
         private void Connection_ResizeEnd(object sender, EventArgs e)
         {
+            _hostResizeInProgress = false;
             ResizeEnd?.Invoke(sender, e);
+
+            // Protocols follow the main window's ResizeEnd themselves. A floating panel is a separate
+            // top-level window, so tell the connections it hosts when it has finished resizing.
+            if (DockState == DockState.Float)
+                NotifyConnectionsOfHostResize((Form)sender, e);
+        }
+
+        private bool _hostResizeInProgress;
+
+        private void FloatWindow_SizeChanged(object sender, EventArgs e)
+        {
+            // Size changes that are not part of a user drag (maximize/restore, or code setting the
+            // floating window's bounds) never raise ResizeEnd, so treat each of them as finished.
+            if (!_hostResizeInProgress)
+                NotifyConnectionsOfHostResize((Form)sender, e);
+        }
+
+        private void NotifyConnectionsOfHostResize(Form host, EventArgs e)
+        {
+            foreach (IDockContent dockContent in connDock.DocumentsToArray())
+            {
+                if (dockContent is ConnectionTab { Tag: InterfaceControl interfaceControl })
+                    interfaceControl.Protocol?.HostResizeEnd(host, e);
+            }
         }
 
         internal void NavigateToNextTab()
@@ -667,6 +728,21 @@ namespace mRemoteNG.UI.Window
             }
         }
 
+        public void EnterRdpFullscreen()
+        {
+            try
+            {
+                InterfaceControl interfaceControl = GetInterfaceControl();
+                if (interfaceControl?.Protocol is RdpProtocol rdp && !rdp.Fullscreen)
+                    rdp.ToggleFullscreen();
+            }
+            catch (Exception ex)
+            {
+                Runtime.MessageCollector.AddExceptionMessage("EnterRdpFullscreen (UI.Window.ConnectionWindow) failed",
+                                                             ex);
+            }
+        }
+
         private void ShowPuttySettingsDialog()
         {
             try
@@ -776,8 +852,8 @@ namespace mRemoteNG.UI.Window
 
             foreach (IDockContent dockContent in connDock.Documents.ToArray())
             {
-                ConnectionTab tab = (ConnectionTab)dockContent;
-                if (selectedTab != tab)
+                // Only connections are closed; the Options window and plugin windows stay open.
+                if (dockContent is ConnectionTab tab && selectedTab != tab)
                 {
                     tab.Close();
                 }
@@ -796,7 +872,7 @@ namespace mRemoteNG.UI.Window
                 List<ConnectionTab> connectionsToClose = new();
                 foreach (IDockContent dockContent in dockPane.Contents)
                 {
-                    ConnectionTab tab = (ConnectionTab)dockContent;
+                    if (dockContent is not ConnectionTab tab) continue;
                     if (pastTabToKeepAlive)
                         connectionsToClose.Add(tab);
 
@@ -840,8 +916,11 @@ namespace mRemoteNG.UI.Window
                     return;
                 }
 
+                ConnectionTab selectedTab = interfaceControl.Parent as ConnectionTab;
+                var reconnectPlacement = PrepareReconnectPlacement(selectedTab);
+
                 Invoke(new Action(() => Prot_Event_Closed(interfaceControl.Protocol)));
-                Runtime.ConnectionInitiator.OpenConnection(interfaceControl.Info, ConnectionInfo.Force.DoNotJump);
+                Runtime.ConnectionInitiator.OpenConnection(interfaceControl.Info, ConnectionInfo.Force.DoNotJump, this, reconnectPlacement.targetPane, reconnectPlacement.targetContentIndex, reconnectPlacement.targetPanePlaceholder);
             }
             catch (Exception ex)
             {

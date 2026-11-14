@@ -44,6 +44,17 @@ namespace mRemoteNG.Connection
                 : value;
         }
 
+        /// <summary>
+        /// Tells the listeners of <see cref="AbstractConnectionRecord.PropertyChanged"/>, such as the save
+        /// after every edit, that the inheritance settings of this connection changed.
+        /// <see cref="ConnectionInfoInheritance"/> raises no events of its own, so whoever changes those
+        /// settings calls this once the change is done.
+        /// </summary>
+        public void RaiseInheritanceChanged()
+        {
+            RaisePropertyChangedEvent(this, new PropertyChangedEventArgs(nameof(Inheritance)));
+        }
+
         [Browsable(false)] public ProtocolList OpenConnections { get; protected set; }
 
         [Browsable(false)] public virtual bool IsContainer { get; set; }
@@ -387,6 +398,7 @@ namespace mRemoteNG.Connection
             RDPAlertIdleTimeout = Settings.Default.ConDefaultRDPAlertIdleTimeout;
             LoadBalanceInfo = Settings.Default.ConDefaultLoadBalanceInfo;
             RenderingEngine = (HTTPBase.RenderingEngine)Enum.Parse(typeof(HTTPBase.RenderingEngine), Settings.Default.ConDefaultRenderingEngine);
+            TerminalBackend = (TerminalBackend)Enum.Parse(typeof(TerminalBackend), Settings.Default.ConDefaultTerminalBackend);
             UseCredSsp = Settings.Default.ConDefaultUseCredSsp;
             UseRestrictedAdmin = Settings.Default.ConDefaultUseRestrictedAdmin;
             UseRCG = Settings.Default.ConDefaultUseRCG;
@@ -435,14 +447,13 @@ namespace mRemoteNG.Connection
         private void SetRedirectDefaults()
         {
             RedirectKeys = Settings.Default.ConDefaultRedirectKeys;
-            RedirectDiskDrives = Settings.Default.ConDefaultRedirectDiskDrives 
-                ? RDPDiskDrives.All 
-                : RDPDiskDrives.None;
+            RedirectDiskDrives = RdpDiskDrivesSetting.Parse(Settings.Default.ConDefaultRedirectDiskDrives);
             RedirectDiskDrivesCustom = Settings.Default.ConDefaultRedirectDiskDrivesCustom;
             RedirectPrinters = Settings.Default.ConDefaultRedirectPrinters;
             RedirectClipboard = Settings.Default.ConDefaultRedirectClipboard;
             RedirectPorts = Settings.Default.ConDefaultRedirectPorts;
             RedirectSmartCards = Settings.Default.ConDefaultRedirectSmartCards;
+            RedirectWebAuthn = Settings.Default.ConDefaultRedirectWebAuthn;
             RedirectAudioCapture = Settings.Default.ConDefaultRedirectAudioCapture;
             RedirectSound = (RDPSounds)Enum.Parse(typeof(RDPSounds), Settings.Default.ConDefaultRedirectSound);
             SoundQuality = (RDPSoundQuality)Enum.Parse(typeof(RDPSoundQuality), Settings.Default.ConDefaultSoundQuality);

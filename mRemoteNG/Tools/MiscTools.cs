@@ -46,7 +46,12 @@ namespace mRemoteNG.Tools
         {
             passwordName ??= string.Empty;
             FrmPassword passwordForm = new(passwordName, verify);
-            return passwordForm.GetKey(owner);
+            if (owner is not null)
+                return passwordForm.GetKey(owner);
+
+            return FrmMain.IsCreated && FrmMain.Default.Visible
+                ? passwordForm.GetKey(FrmMain.Default)
+                : passwordForm.GetKey();
         }
 
         public static string LeadingZero(string Number)

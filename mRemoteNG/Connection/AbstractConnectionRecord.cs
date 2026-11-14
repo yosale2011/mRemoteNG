@@ -4,6 +4,7 @@ using System.Drawing;
 using mRemoteNG.Connection.Protocol;
 using mRemoteNG.Connection.Protocol.Http;
 using mRemoteNG.Connection.Protocol.RDP;
+using mRemoteNG.Connection.Protocol.Terminal;
 using mRemoteNG.Connection.Protocol.VNC;
 using mRemoteNG.Properties;
 using mRemoteNG.Tools;
@@ -56,6 +57,7 @@ namespace mRemoteNG.Connection
         private bool _rdpAlertIdleTimeout;
         private string _loadBalanceInfo;
         private HTTPBase.RenderingEngine _renderingEngine;
+        private TerminalBackend _terminalBackend;
         private bool _useCredSsp;
         private bool _useRestrictedAdmin;
         private bool _useRCG;
@@ -93,6 +95,7 @@ namespace mRemoteNG.Connection
         private bool _redirectClipboard;
         private bool _redirectPorts;
         private bool _redirectSmartCards;
+        private bool _redirectWebAuthn;
         private RDPSounds _redirectSound;
         private RDPSoundQuality _soundQuality;
         private bool _redirectAudioCapture;
@@ -204,7 +207,8 @@ namespace mRemoteNG.Connection
          AttributeUsedInAllProtocolsExcept()]
         public virtual string Hostname
         {
-            get => _hostname.Trim();
+            // A connection given no hostname, or a null one, reads as empty rather than throwing.
+            get => _hostname?.Trim() ?? "";
             set => SetField(ref _hostname, value?.Trim(), "Hostname");
         }
 
@@ -464,7 +468,7 @@ namespace mRemoteNG.Connection
         }
 
         [LocalizedAttributes.LocalizedCategory(nameof(Language.Protocol), 3),
-         LocalizedAttributes.LocalizedDisplayName(nameof(Language.MinutesToIdleTimeout)),
+         LocalizedAttributes.LocalizedDisplayName(nameof(Language.AlertIdleTimeout)),
          LocalizedAttributes.LocalizedDescription(nameof(Language.PropertyDescriptionRDPAlertIdleTimeout)),
          AttributeUsedInProtocol(ProtocolType.RDP)]
         public bool RDPAlertIdleTimeout
@@ -492,6 +496,17 @@ namespace mRemoteNG.Connection
         {
             get => GetPropertyValue("RenderingEngine", _renderingEngine);
             set => SetField(ref _renderingEngine, value, "RenderingEngine");
+        }
+
+        [LocalizedAttributes.LocalizedCategory(nameof(Language.Protocol), 3),
+         LocalizedAttributes.LocalizedDisplayName(nameof(Language.TerminalBackend)),
+         LocalizedAttributes.LocalizedDescription(nameof(Language.PropertyDescriptionTerminalBackend)),
+         TypeConverter(typeof(MiscTools.EnumTypeConverter)),
+         AttributeUsedInProtocol(ProtocolType.SSH1, ProtocolType.SSH2)]
+        public TerminalBackend TerminalBackend
+        {
+            get => GetPropertyValue("TerminalBackend", _terminalBackend);
+            set => SetField(ref _terminalBackend, value, "TerminalBackend");
         }
 
         [LocalizedAttributes.LocalizedCategory(nameof(Language.Protocol), 3),
@@ -784,8 +799,8 @@ namespace mRemoteNG.Connection
         }
 
         [LocalizedAttributes.LocalizedCategory(nameof(Language.Appearance), 5),
-         LocalizedAttributes.LocalizedDisplayName(nameof(Language.DisableCursorShadow)),
-         LocalizedAttributes.LocalizedDescription(nameof(Language.PropertyDescriptionDisableCursorShadow)),
+         LocalizedAttributes.LocalizedDisplayName(nameof(Language.DisableCursorBlinking)),
+         LocalizedAttributes.LocalizedDescription(nameof(Language.PropertyDescriptionDisableCursorBlinking)),
          TypeConverter(typeof(MiscTools.YesNoTypeConverter)),
          AttributeUsedInProtocol(ProtocolType.RDP)]
         public bool DisableCursorBlinking
@@ -872,6 +887,17 @@ namespace mRemoteNG.Connection
         {
             get => GetPropertyValue("RedirectSmartCards", _redirectSmartCards);
             set => SetField(ref _redirectSmartCards, value, "RedirectSmartCards");
+        }
+
+        [LocalizedAttributes.LocalizedCategory(nameof(Language.Redirect), 6),
+         LocalizedAttributes.LocalizedDisplayName(nameof(Language.RedirectWebAuthn)),
+         LocalizedAttributes.LocalizedDescription(nameof(Language.PropertyDescriptionRedirectWebAuthn)),
+         TypeConverter(typeof(MiscTools.YesNoTypeConverter)),
+         AttributeUsedInProtocol(ProtocolType.RDP)]
+        public bool RedirectWebAuthn
+        {
+            get => GetPropertyValue("RedirectWebAuthn", _redirectWebAuthn);
+            set => SetField(ref _redirectWebAuthn, value, "RedirectWebAuthn");
         }
 
         [LocalizedAttributes.LocalizedCategory(nameof(Language.Redirect), 6),

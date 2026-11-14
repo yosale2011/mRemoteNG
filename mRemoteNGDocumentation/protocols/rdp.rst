@@ -25,7 +25,7 @@ RDP 6
 	* - Use Console Session
 	  - Connect to the console session of the remote host
 	* - Server Authentication
-	  - When connecting, RDP clients attempt to authenticate the remote server to ensure that it is who you expect. This option allows you to select how to handle authentication failures. The possible values are ``Always connect, even if authentication fails``, ``Don't connect if authentication fails``, ``Warn me if authentication fails``.
+	  - When connecting, RDP clients attempt to authenticate the remote server to ensure that it is who you expect. This option allows you to select how to handle authentication failures. The possible values are ``Always connect, even if authentication fails``, ``Don't connect if authentication fails``, ``Warn me if authentication fails``. A new installation starts with ``Warn me if authentication fails``, as the Windows Remote Desktop client does.
 	* - Minute to Idle
 	  - Allows you to specify the number of minutes an RDP connection can sit idle before automatically being disconnected. A value of ``0`` means the connection will never disconnect due to inactivity.
 	* - Load Balance Info
@@ -68,7 +68,7 @@ RDP 6
 	* - Desktop Composition
 	  - Enables visual effects on the remote desktop and features like glass window frames, 3D window transition animations, and Windows Flip. Uses more network bandwidth.
 	* - Redirect Key Combinations
-	  - Select whether key combinations (e.g. Alt-Tab) should be redirected to the remote host.
+	  - Select where Windows key combinations (e.g. Alt-Tab) are handled. ``Yes`` sends them to the remote host in both windowed and fullscreen sessions; ``No`` keeps them on the local computer in both modes. This is not a switch to block all Ctrl/Shift application shortcuts.
 	* - Redirect Disk Drives
 	  - Select whether local disk drives should be shown on the remote host.
 	* - Redirect Printers
@@ -79,9 +79,11 @@ RDP 6
 	  - Select whether local ports (ie. com, parallel) should be shown on the remote host.
 	* - Redirect Smart Cards
 	  - Select whether local smart cards should be available on the remote host.
+	* - WebAuthn (Windows Hello / security keys)
+	  - Select whether WebAuthn requests (passkeys, Windows Hello, FIDO2 security keys) made in the remote session are redirected to the local computer. Requires Windows 11 22H2 / Windows Server 2025 or later on the remote host and an up-to-date RDP client on the local computer.
 	* - Redirect Sounds
 	  - Determine how remote sound should be redirected. Possible values are ``Bring to this computer``, ``Leave at remote computer``, ``Do not play``
-	
+
 
 RDP 7
 -----
@@ -134,3 +136,19 @@ RDP 10
 ------
 
 We support this protocol version, but are not yet using any of its features.
+
+
+Keyboard Combination Troubleshooting
+====================================
+
+If a required shortcut is not reaching a windowed RDP session, set the
+``Key Combinations`` connection property to ``Yes`` and reconnect. Check whether
+the property is inherited from a parent folder.
+
+With ``No``, Windows shortcuts are deliberately handled locally. Ordinary
+application shortcuts and left/right modifier behavior are also affected by the
+Windows RDP client, keyboard layout, and local shortcut handlers. If right
+Shift/Ctrl combinations still behave differently on the latest build, compare
+the same shortcut in Microsoft's Remote Desktop client with the same keyboard
+redirection setting, and report the exact shortcut, local/remote Windows
+versions, keyboard layouts, and mRemoteNG version.

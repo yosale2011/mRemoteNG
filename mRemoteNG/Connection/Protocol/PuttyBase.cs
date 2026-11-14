@@ -2,7 +2,6 @@
 using mRemoteNG.Messages;
 using mRemoteNG.Resources.Language;
 using mRemoteNG.Security;
-using mRemoteNG.Security.SymmetricEncryption;
 using mRemoteNG.Tools;
 using mRemoteNG.Tools.Cmdline;
 using mRemoteNG.Tree.Root;
@@ -19,6 +18,7 @@ using System.Security.Principal;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 
 // ReSharper disable ArrangeAccessorOwnerBody
@@ -300,16 +300,26 @@ namespace mRemoteNG.Connection.Protocol
                 return;
 
             RemovePuttyWindowDecorations();
+            ResizeEmbeddedPutty();
+        }
 
-            // Use the same dynamic sizing logic as Resize() method
+        /// <summary>
+        /// Stretches the embedded (non-PuTTYNG) window to fill the container panel,
+        /// pushing the window decorations outside the visible panel area.
+        /// Shared by the initial embed and all subsequent resize events.
+        /// </summary>
+        private void ResizeEmbeddedPutty()
+        {
+            if (PuttyHandle == IntPtr.Zero)
+                return;
+
             // Use the container panel if it exists, otherwise use InterfaceControl
             Rectangle clientRect = _puttyContainerPanel?.ClientRectangle ?? InterfaceControl.ClientRectangle;
 
-            int leftBorder;
-            int topBorder;
-            int rightBorder;
-            int bottomBorder;
-            bool calculatedSuccessfully = TryGetPuTTYBorderSizes(out leftBorder, out topBorder, out rightBorder, out bottomBorder);
+            if (clientRect.Width <= 0 || clientRect.Height <= 0)
+                return;
+
+            TryGetPuTTYBorderSizes(out int leftBorder, out int topBorder, out int rightBorder, out int bottomBorder);
 
             // Apply calculated offsets to hide borders outside panel
             NativeMethods.MoveWindow(PuttyHandle,
@@ -329,16 +339,31 @@ namespace mRemoteNG.Connection.Protocol
             return PuttyProcess?.HasExited == false;
         }
 
-        public void CreatePipe(object oData)
+        // How long PuTTY gets to open the password pipe before we give up, so a PuTTY that
+        // never starts does not leave the password waiting in memory forever.
+        internal static readonly TimeSpan PasswordPipeTimeout = TimeSpan.FromSeconds(30);
+
+        internal static string CreateSecretPipeName() => $"mRemoteNGSecretPipe{Guid.NewGuid():N}";
+
+        internal static async Task ServePasswordAsync(string pipeName, string password, TimeSpan timeout)
         {
-            string data = (string)oData;
-            string random = data[..8];
-            string password = data[8..];
-            using NamedPipeServerStream server = CreatePipeServer($"mRemoteNGSecretPipe{random}");
-            server.WaitForConnection();
-            using StreamWriter writer = new(server);
-            writer.Write(password);
-            writer.Flush();
+            try
+            {
+                using CancellationTokenSource cts = new(timeout);
+                using NamedPipeServerStream server = CreatePipeServer(pipeName);
+                await server.WaitForConnectionAsync(cts.Token).ConfigureAwait(false);
+                using StreamWriter writer = new(server);
+                await writer.WriteAsync(password).ConfigureAwait(false);
+                await writer.FlushAsync(cts.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                Runtime.MessageCollector.AddMessage(MessageClass.WarningMsg, Language.PuttyPasswordPipeTimedOut, true);
+            }
+            catch (Exception ex)
+            {
+                Runtime.MessageCollector.AddExceptionMessage(Language.PuttyPasswordPipeFailed, ex, MessageClass.WarningMsg, false);
+            }
         }
 
         public override bool Connect()
@@ -469,8 +494,7 @@ namespace mRemoteNG.Connection.Protocol
                         {
                             if (Properties.OptionsCredentialsPage.Default.EmptyCredentials == "custom")
                             {
-                                LegacyRijndaelCryptographyProvider cryptographyProvider = new();
-                                password = cryptographyProvider.Decrypt(Properties.OptionsCredentialsPage.Default.DefaultPassword, Runtime.EncryptionKey);
+                                password = OptionPasswords.Unprotect(Properties.OptionsCredentialsPage.Default.DefaultPassword);
                             }
                         }
 
@@ -485,12 +509,11 @@ namespace mRemoteNG.Connection.Protocol
 
                             if (!string.IsNullOrEmpty(password))
                             {
-                                string random = string.Join("", Guid.NewGuid().ToString("n").Take(8));
-                                // write data to pipe
-                                Thread thread = new(new ParameterizedThreadStart(CreatePipe));
-                                thread.Start($"{random}{password}");
+                                string pipeName = CreateSecretPipeName();
+                                // write data to pipe; times out if PuTTY never connects
+                                _ = ServePasswordAsync(pipeName, password, PasswordPipeTimeout);
                                 // start putty with piped password
-                                arguments.Add("-pwfile", $"\\\\.\\PIPE\\mRemoteNGSecretPipe{random}");
+                                arguments.Add("-pwfile", $"\\\\.\\PIPE\\{pipeName}");
                                 //arguments.Add("-pw", password);
                             }
                         }
@@ -501,8 +524,7 @@ namespace mRemoteNG.Connection.Protocol
                                 return false;
                             }
                             arguments.Add("-auth-plugin");
-                            string random = string.Join("", Guid.NewGuid().ToString("n").Take(8));
-                            string pipename = $"mRemoteNGSecretPipe{random}";
+                            string pipename = CreateSecretPipeName();
                             AddArgumentString(arguments, $"\"{App.Info.GeneralAppInfo.HomePath}\\vault-ssh-helper-plugin.exe\" {username} --pipeName={pipename}");
                             System.Threading.Tasks.Task.Run(async () => {
                                 using NamedPipeServerStream server = CreatePipeServer(pipename);
@@ -614,49 +636,48 @@ namespace mRemoteNG.Connection.Protocol
                         BackColor = System.Drawing.Color.Black
                     };
 
-                    // Parent PuTTY to the container panel instead of InterfaceControl
+                    // Parent PuTTY to the container panel instead of InterfaceControl.
+                    // The window is still hidden at this point (SW_HIDE was applied when the
+                    // handle was found) so nothing is visible on screen yet.
                     NativeMethods.SetParent(PuttyHandle, _puttyContainerPanel.Handle);
-
-                    // Get container panel dimensions for sizing
-                    Rectangle containerRect = _puttyContainerPanel.ClientRectangle;
-
-                    // Calculate 70% size 
-                    int newWidth = (int)(containerRect.Width * 0.7);
-                    int newHeight = (int)(containerRect.Height * 0.7);
 
                     // Initial aggressive border and decoration removal
                     RemovePuttyWindowDecorations();
 
-                    // Step 1: First SetWindowPos call - with explicit position and size
-                    NativeMethods.SetWindowPos(PuttyHandle, IntPtr.Zero,
-                        0, 0, 
-                        newWidth, newHeight,
-                        NativeMethods.SWP_NOZORDER | NativeMethods.SWP_FRAMECHANGED);
-
-                    // Step 2: Small delay to allow Windows to process style changes
+                    // Allow Windows to process the style changes before we size the window.
                     Thread.Sleep(100);
+                    RemovePuttyWindowDecorations();
 
-                    // Step 3: Second SetWindowPos call - force recalculation again
-                    NativeMethods.SetWindowPos(PuttyHandle, IntPtr.Zero,
-                        0, 0, 
-                        newWidth, newHeight,
-                        NativeMethods.SWP_NOZORDER | NativeMethods.SWP_FRAMECHANGED);
+                    // Stretch the still-hidden window to fill the panel BEFORE showing it,
+                    // so the user never sees it appear small/centered and then resize.
+                    ResizeEmbeddedPutty();
 
-                    // Step 4: Show the window explicitly to force redraw
+                    // Now that the window already fills the panel, make it visible.
                     NativeMethods.ShowWindow(PuttyHandle, (int)NativeMethods.SW_SHOW);
-
-                    // Step 5: Final positioning to ensure seamless integration
-                    NativeMethods.SetWindowPos(PuttyHandle, IntPtr.Zero,
-                        0, 0, 
-                        newWidth, newHeight,
-                        NativeMethods.SWP_NOZORDER | NativeMethods.SWP_FRAMECHANGED | NativeMethods.SWP_SHOWWINDOW);
+                    if (NativeMethods.IsIconic(PuttyHandle) != 0)
+                    {
+                        NativeMethods.ShowWindow(PuttyHandle, (int)NativeMethods.SW_RESTORE);
+                    }
 
                     // CRITICAL: Hook into resize event to reapply decoration removal
                     // This ensures decorations don't reappear when the window is resized
                     InterfaceControl.Resize += InterfaceControl_Resize;
 
-                    Runtime.MessageCollector.AddMessage(MessageClass.InformationMsg, 
+                    Runtime.MessageCollector.AddMessage(MessageClass.InformationMsg,
                         Language.PuttyStuff + ": Border removal hooked to persist through resizes", true);
+                }
+                else
+                {
+                    // PuTTYNG attaches itself to the parent panel, but it initially
+                    // paints at its saved-session size (smaller than the panel) and is
+                    // only stretched later by the Resize() call below. Stretch it to
+                    // fill the panel immediately so the user never sees it appear small
+                    // and then expand.
+                    if (PuttyHandle != IntPtr.Zero && InterfaceControl.Size != Size.Empty)
+                    {
+                        Rectangle clientRect = InterfaceControl.ClientRectangle;
+                        NativeMethods.MoveWindow(PuttyHandle, clientRect.X, clientRect.Y, clientRect.Width, clientRect.Height, true);
+                    }
                 }
 
                 Runtime.MessageCollector.AddMessage(MessageClass.InformationMsg, Language.PuttyStuff, true);
@@ -669,11 +690,6 @@ namespace mRemoteNG.Connection.Protocol
                     NativeMethods.SetForegroundWindow(PuttyHandle);
                     string finalCommand = InterfaceControl.Info.OpeningCommand.TrimEnd() + "\n";
                     SendKeys.SendWait(finalCommand);
-                }
-
-                if (!_isPuttyNg)
-                {
-                    NativeMethods.ShowWindow(PuttyHandle, (int)NativeMethods.SW_RESTORE);
                 }
 
                 Resize(this, new EventArgs());
@@ -719,35 +735,8 @@ namespace mRemoteNG.Connection.Protocol
                 }
                 else
                 {
-                    // For regular PuTTY, use the container panel if it exists
-                    Rectangle clientRect = _puttyContainerPanel?.ClientRectangle ?? InterfaceControl.ClientRectangle;
-
-                    int leftBorder;
-                    int topBorder;
-                    int rightBorder;
-                    int bottomBorder;
-                    bool calculatedSuccessfully = TryGetPuTTYBorderSizes(out leftBorder, out topBorder, out rightBorder, out bottomBorder);
-
-                    if (calculatedSuccessfully)
-                    {
-                        Runtime.MessageCollector.AddMessage(MessageClass.DebugMsg,
-                            $"PuTTY dynamic borders - Left:{leftBorder}, Top (header):{topBorder}, Right (+ scroll): {rightBorder}, Bottom:{bottomBorder}", true);
-                    }
-                    else
-                    {
-                        Runtime.MessageCollector.AddMessage(MessageClass.DebugMsg,
-                            $"PuTTY using fallback borders - Left:{leftBorder}, Top:{topBorder}, Right:{rightBorder}, Bottom:{bottomBorder}", true);
-                    }
-
-                    // Apply calculated offsets to hide borders outside panel
-                    // Position at negative offset to move borders out of view
-                    // Size is expanded by border amounts to compensate
-                    NativeMethods.MoveWindow(PuttyHandle,
-                        clientRect.X - leftBorder,
-                        clientRect.Y - topBorder,
-                        clientRect.Width + leftBorder + rightBorder,
-                        clientRect.Height + topBorder + bottomBorder,
-                        true);
+                    // For regular PuTTY, stretch the window to fill the container panel.
+                    ResizeEmbeddedPutty();
                 }
             }
             catch (Exception ex)

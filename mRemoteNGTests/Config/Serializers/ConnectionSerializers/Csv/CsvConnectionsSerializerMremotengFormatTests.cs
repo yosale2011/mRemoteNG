@@ -133,6 +133,21 @@ public class CsvConnectionsSerializerMremotengFormatTests
         Assert.That(lineWithFolder3, Does.Contain(serializationTarget.Password));
     }
 
+    [Test]
+    public void HeaderHasOneColumnForEveryValueInARow()
+    {
+        var serializer = new CsvConnectionsSerializerMremotengFormat(new SaveFilter(), _credentialRepositoryList);
+        var csv = serializer.Serialize(new ConnectionInfo { Name = "plain" });
+        var lines = csv.Split(new[] { Environment.NewLine }, StringSplitOptions.RemoveEmptyEntries);
+        var header = lines[0].Split(';');
+        // Every value is written with a ';' after it, the last one included; the header has none at the end.
+        var values = lines[1].Split(';');
+
+        Assert.That(values, Has.Length.EqualTo(header.Length + 1));
+        Assert.That(values[^1], Is.Empty);
+        Assert.That(header, Does.Contain("RedirectDiskDrivesCustom").And.Contain("RedirectPorts"));
+    }
+
     private ConnectionInfo BuildConnectionInfo()
     {
         return new ConnectionInfo
@@ -144,6 +159,28 @@ public class CsvConnectionsSerializerMremotengFormatTests
             Password = Password,
             Inheritance = { Colors = true }
         };
+    }
+
+    [Test]
+    public void RestrictedFilterRedactsMainAndAuxiliaryCredentials()
+    {
+        var filter = new SaveFilter(allowPasswords: false, allowUsernames: false)
+        {
+            SavePassword = true,
+            SaveUsername = true
+        };
+        var serializer = new CsvConnectionsSerializerMremotengFormat(filter, _credentialRepositoryList);
+        var connection = BuildConnectionInfo();
+        connection.VNCProxyUsername = "synthetic-proxy-user";
+        connection.VNCProxyPassword = "synthetic-proxy-secret";
+        connection.RDGatewayUsername = "synthetic-gateway-user";
+        connection.RDGatewayPassword = "synthetic-gateway-secret";
+
+        var csv = serializer.Serialize(connection);
+
+        foreach (var secret in new[] { Username, Password, connection.VNCProxyUsername,
+                     connection.VNCProxyPassword, connection.RDGatewayUsername, connection.RDGatewayPassword })
+            Assert.That(csv, Does.Not.Contain(secret));
     }
 
     private ContainerInfo BuildContainer()

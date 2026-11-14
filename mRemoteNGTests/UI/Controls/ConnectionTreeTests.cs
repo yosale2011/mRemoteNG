@@ -69,6 +69,111 @@ namespace mRemoteNGTests.UI.Controls
 			Assert.That(_connectionTree.FilteredObjects, Does.Contain(con2));
 		}
 
+		[Test]
+		[Apartment(ApartmentState.STA)]
+		public void ConnectionColorIsUsedForItsNameInTheTree()
+		{
+			var connectionTreeModel = new ConnectionTreeModel();
+			var root = new RootNodeInfo(RootNodeType.Connection);
+			var folder = new ContainerInfo {Name = "folder"};
+			var coloured = new ConnectionInfo {Name = "coloured", Color = "Red"};
+			// Other tests change the default inheritance; this one must show its own colour.
+			coloured.Inheritance.TurnOffInheritanceCompletely();
+			root.AddChild(folder);
+			folder.AddChild(coloured);
+			connectionTreeModel.AddRootNode(root);
+			_connectionTree.ConnectionTreeModel = connectionTreeModel;
+			_connectionTree.ExpandAll();
+
+			var item = _connectionTree.ModelToItem(coloured);
+
+			Assert.That(item, Is.Not.Null);
+			Assert.That(item.GetSubItem(0).ForeColor.ToArgb(), Is.EqualTo(System.Drawing.Color.Red.ToArgb()));
+		}
+
+		[Test]
+		[Apartment(ApartmentState.STA)]
+		public void ApplyFilterRevealsMatchesInsideCollapsedFolders()
+		{
+			// root
+			// |- folder1
+			//		|- subfolder
+			//			|- sql01
+			mRemoteNG.Properties.OptionsAppearancePage.Default.EnableConnectionTreeAnimations = false;
+			var connectionTreeModel = new ConnectionTreeModel();
+			var root = new RootNodeInfo(RootNodeType.Connection);
+			var folder1 = new ContainerInfo {Name = "folder1"};
+			var subfolder = new ContainerInfo {Name = "subfolder"};
+			var sql01 = new ConnectionInfo {Name = "sql01"};
+			root.AddChild(folder1);
+			folder1.AddChild(subfolder);
+			subfolder.AddChild(sql01);
+			connectionTreeModel.AddRootNode(root);
+			_connectionTree.ConnectionTreeModel = connectionTreeModel;
+			_connectionTree.CollapseAll();
+
+			_connectionTree.ApplyFilter("sql");
+
+			Assert.That(_connectionTree.FilteredObjects, Does.Contain(sql01));
+			Assert.That(_connectionTree.IsExpanded(folder1), Is.True);
+			Assert.That(_connectionTree.IsExpanded(subfolder), Is.True);
+		}
+
+		[Test]
+		[Apartment(ApartmentState.STA)]
+		public void RemoveFilterCollapsesFoldersThatTheFilterExpanded()
+		{
+			mRemoteNG.Properties.OptionsAppearancePage.Default.EnableConnectionTreeAnimations = false;
+			var connectionTreeModel = new ConnectionTreeModel();
+			var root = new RootNodeInfo(RootNodeType.Connection);
+			var openFolder = new ContainerInfo {Name = "openFolder"};
+			var closedFolder = new ContainerInfo {Name = "closedFolder"};
+			var con1 = new ConnectionInfo {Name = "match1"};
+			var con2 = new ConnectionInfo {Name = "match2"};
+			root.AddChildRange(new []{openFolder, closedFolder});
+			openFolder.AddChild(con1);
+			closedFolder.AddChild(con2);
+			connectionTreeModel.AddRootNode(root);
+			_connectionTree.ConnectionTreeModel = connectionTreeModel;
+			_connectionTree.CollapseAll();
+			_connectionTree.Expand(root);
+			_connectionTree.Expand(openFolder);
+
+			_connectionTree.ApplyFilter("match");
+			_connectionTree.RemoveFilter();
+
+			Assert.That(_connectionTree.IsExpanded(openFolder), Is.True);
+			Assert.That(_connectionTree.IsExpanded(closedFolder), Is.False);
+		}
+
+		[Test]
+		[Apartment(ApartmentState.STA)]
+		public void FilteringDoesNotChangeSavedFolderExpansionState()
+		{
+			// IsExpanded is persisted and changing it triggers save-on-edit,
+			// so a search must not raise PropertyChanged on any folder
+			mRemoteNG.Properties.OptionsAppearancePage.Default.EnableConnectionTreeAnimations = false;
+			var connectionTreeModel = new ConnectionTreeModel();
+			var root = new RootNodeInfo(RootNodeType.Connection);
+			var folder = new ContainerInfo {Name = "folder"};
+			var con = new ConnectionInfo {Name = "match"};
+			root.AddChild(folder);
+			folder.AddChild(con);
+			connectionTreeModel.AddRootNode(root);
+			_connectionTree.ConnectionTreeModel = connectionTreeModel;
+			_connectionTree.CollapseAll();
+			bool folderExpandedBefore = folder.IsExpanded;
+			var changedProperties = new List<string>();
+			connectionTreeModel.PropertyChanged += (sender, args) => changedProperties.Add(args.PropertyName);
+
+			_connectionTree.ApplyFilter("match");
+			Assert.That(_connectionTree.IsExpanded(folder), Is.True);
+			_connectionTree.RemoveFilter();
+
+			Assert.That(folder.IsExpanded, Is.EqualTo(folderExpandedBefore));
+			Assert.That(changedProperties, Does.Not.Contain(nameof(ContainerInfo.IsExpanded)));
+		}
+
 	    [Test]
 	    [Apartment(ApartmentState.STA)]
 	    public void CannotAddConnectionToPuttySessionNode()
@@ -261,6 +366,141 @@ namespace mRemoteNGTests.UI.Controls
 			_connectionTree.SelectedObject = null;
 
 	        Assert.DoesNotThrow(() => _connectionTree.RenameSelectedNode());
+        }
+
+        // Rename uses ObjectListView's cell editor, which is placed over the text as the tree
+        // draws it; the native label edit box was shifted and left the old name visible (#3247)
+        private (Form host, ConnectionInfo connection) ShowTreeWithNestedConnection()
+        {
+            var connectionTreeModel = new ConnectionTreeModel();
+            var root = new RootNodeInfo(RootNodeType.Connection);
+            var folder = new ContainerInfo { Name = "folder" };
+            var connection = new ConnectionInfo { Name = "old name" };
+            root.AddChild(folder);
+            folder.AddChild(connection);
+            connectionTreeModel.AddRootNode(root);
+
+            var host = new Form { Width = 400, Height = 300, ShowInTaskbar = false };
+            _connectionTree.Dock = DockStyle.Fill;
+            host.Controls.Add(_connectionTree);
+            host.Show();
+            _connectionTree.ConnectionTreeModel = connectionTreeModel;
+            _connectionTree.ExpandAll();
+            _connectionTree.SelectObject(connection, true);
+            Application.DoEvents();
+            return (host, connection);
+        }
+
+        private TextBox CellEditor() => _connectionTree.Controls.OfType<TextBox>().SingleOrDefault();
+
+        [Test]
+        [Apartment(ApartmentState.STA)]
+        public void RenameOpensTheTreesOwnEditorWithTheCurrentName()
+        {
+            var (host, _) = ShowTreeWithNestedConnection();
+            using (host)
+            {
+                _connectionTree.RenameSelectedNode();
+
+                Assert.That(_connectionTree.IsCellEditing, Is.True);
+                Assert.That(CellEditor()?.Text, Is.EqualTo("old name"));
+                _connectionTree.CancelCellEdit();
+            }
+        }
+
+        [Test]
+        [Apartment(ApartmentState.STA)]
+        public void FinishingTheRenameSetsTheNewName()
+        {
+            var (host, connection) = ShowTreeWithNestedConnection();
+            using (host)
+            {
+                _connectionTree.RenameSelectedNode();
+                CellEditor().Text = "new name";
+                _connectionTree.FinishCellEdit();
+
+                Assert.That(connection.Name, Is.EqualTo("new name"));
+                Assert.That(_connectionTree.IsCellEditing, Is.False);
+            }
+        }
+
+        [Test]
+        [Apartment(ApartmentState.STA)]
+        public void CancellingTheRenameKeepsTheOldName()
+        {
+            var (host, connection) = ShowTreeWithNestedConnection();
+            using (host)
+            {
+                _connectionTree.RenameSelectedNode();
+                CellEditor().Text = "new name";
+                _connectionTree.CancelCellEdit();
+
+                Assert.That(connection.Name, Is.EqualTo("old name"));
+            }
+        }
+
+        [TestCase(0, TestName = "RenameEditorCoversTheTextOnEveryLevel")]
+        [TestCase(24, TestName = "RenameEditorCoversTheTextOnEveryLevelWithScaledIcons")]
+        [Apartment(ApartmentState.STA)]
+        public void RenameEditorCoversTheTextOnEveryLevel(int scaledIconSize)
+        {
+            var connectionTreeModel = new ConnectionTreeModel();
+            var root = new RootNodeInfo(RootNodeType.Connection);
+            var outer = new ContainerInfo { Name = "outer" };
+            var inner = new ContainerInfo { Name = "inner" };
+            var server = new ConnectionInfo { Name = "a.rather.long.server.name.example.local" };
+            var deepServer = new ConnectionInfo { Name = "deep server" };
+            root.AddChild(outer);
+            outer.AddChildRange(new ConnectionInfo[] { inner, server });
+            inner.AddChild(deepServer);
+            connectionTreeModel.AddRootNode(root);
+
+            using var host = new Form { Width = 500, Height = 400, ShowInTaskbar = false };
+            _connectionTree.Dock = DockStyle.Fill;
+            host.Controls.Add(_connectionTree);
+            host.Show();
+            _connectionTree.ConnectionTreeModel = connectionTreeModel;
+            if (scaledIconSize > 0)
+            {
+                // display scaling makes the icons wider than the 17 pixels the tree indents per level
+                var scaled = new ImageList { ImageSize = new System.Drawing.Size(scaledIconSize, scaledIconSize) };
+                foreach (string key in _connectionTree.SmallImageList.Images.Keys)
+                    scaled.Images.Add(key, new System.Drawing.Bitmap(scaledIconSize, scaledIconSize));
+                _connectionTree.SmallImageList = scaled;
+            }
+            _connectionTree.ExpandAll();
+            Application.DoEvents();
+
+            var textOffsets = new List<int>();
+            foreach (ConnectionInfo node in new ConnectionInfo[] { outer, inner, server, deepServer })
+            {
+                _connectionTree.SelectObject(node, true);
+                int indentCount = _connectionTree.SelectedItem.IndentCount;
+                _connectionTree.RenameSelectedNode();
+                TextBox editor = CellEditor();
+
+                // the text is drawn PIXELS_PER_LEVEL per level in, then image and spacing
+                textOffsets.Add(editor.Left - indentCount * BrightIdeasSoftware.TreeListView.TreeRenderer.PIXELS_PER_LEVEL);
+                Assert.That(editor.Right, Is.EqualTo(_connectionTree.ClientSize.Width), $"{node.Name}: the editor should fill the row");
+                _connectionTree.CancelCellEdit();
+                Application.DoEvents();
+            }
+
+            Assert.That(textOffsets.Distinct().Count(), Is.EqualTo(1), $"the editor moves relative to the text between levels: {string.Join(", ", textOffsets)}");
+        }
+
+        [Test]
+        [Apartment(ApartmentState.STA)]
+        public void CellEditCanOnlyStartThroughRename()
+        {
+            var (host, _) = ShowTreeWithNestedConnection();
+            using (host)
+            {
+                // without a rename request, starting an edit is refused, as BeforeLabelEdit did
+                _connectionTree.StartCellEdit(_connectionTree.SelectedItem, 0);
+
+                Assert.That(_connectionTree.IsCellEditing, Is.False);
+            }
         }
 
         [Test]

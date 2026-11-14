@@ -44,6 +44,8 @@ namespace mRemoteNG.UI.Window
             DockPnl = panel;
             Icon = Resources.ImageConverter.GetImageAsIcon(Properties.Resources.ASPWebSite_16x);
             InitializeComponent();
+            // the designer docks the search bar at the bottom; apply the saved preference at startup
+            PlaceSearchBar(Settings.Default.PlaceSearchBarAboveConnectionTree);
             SetMenuEventHandlers();
             SetConnectionTreeEventHandlers();
             Settings.Default.PropertyChanged += OnAppSettingsChanged;
@@ -160,7 +162,9 @@ namespace mRemoteNG.UI.Window
                 new RootNodeExpander()
             };
 
-            if (Properties.OptionsStartupExitPage.Default.OpenConsFromLastSession && !Properties.OptionsAdvancedPage.Default.NoReconnect)
+            // OptionsAdvancedPage.NoReconnect is the "reconnect automatically when disconnected" option,
+            // not a reason to skip the previous sessions (#3178)
+            if (Properties.OptionsStartupExitPage.Default.OpenConsFromLastSession && !Runtime.NoReconnectToPreviousSessions)
                 actions.Add(new PreviousSessionOpener(Runtime.ConnectionInitiator));
 
             ConnectionTree.PostSetupActions = actions;

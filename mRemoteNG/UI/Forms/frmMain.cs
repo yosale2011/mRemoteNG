@@ -35,6 +35,7 @@ using System.Linq;
 using mRemoteNG.Resources.Language;
 using System.Runtime.Versioning;
 using mRemoteNG.Config.Settings.Registry;
+using mRemoteNG.Security;
 using System.Threading; // ADDED
 #endregion
 
@@ -49,7 +50,23 @@ namespace mRemoteNG.UI.Forms
         private static readonly Lazy<FrmMain> s_default =
             new(InitializeOnSta, LazyThreadSafetyMode.ExecutionAndPublication);
 
-        public static FrmMain Default => s_default.Value;
+        public static FrmMain Default => GetDefault();
+
+        // The thread is checked before the Lazy runs. In ExecutionAndPublication mode a Lazy keeps
+        // the exception its factory throws, so one call from the wrong thread would otherwise
+        // leave FrmMain.Default failing for the rest of the process, whatever thread asks next.
+        private static FrmMain GetDefault()
+        {
+            if (!s_default.IsValueCreated && !CanBeCreatedOnThisThread())
+                throw new ThreadStateException("FrmMain must be created on an STA thread.");
+            return s_default.Value;
+        }
+
+        private static bool CanBeCreatedOnThisThread()
+        {
+            return Thread.CurrentThread.GetApartmentState() == ApartmentState.STA ||
+                   SynchronizationContext.Current is WindowsFormsSynchronizationContext;
+        }
 
         public static bool IsCreated => s_default.IsValueCreated;
 
@@ -104,6 +121,19 @@ namespace mRemoteNG.UI.Forms
             // Create a new instance
             OptionsForm = new FrmOptions();
             Logger.Instance.Log?.Debug("[FrmMain.RecreateOptionsForm] New OptionsForm created");
+        }
+
+        protected override bool ProcessCmdKey(ref System.Windows.Forms.Message msg, Keys keyData)
+        {
+            if (keyData == (Keys.Alt | Keys.Menu))
+            {
+                if (!msMain.Visible)
+                {
+                    msMain.Visible = true;
+                }
+            }
+
+            return base.ProcessCmdKey(ref msg, keyData);
         }
 
         internal FullscreenHandler Fullscreen { get; set; }
@@ -210,14 +240,24 @@ namespace mRemoteNG.UI.Forms
 
             SettingsLoader settingsLoader = new(this, messageCollector, _quickConnectToolStrip, _externalToolsToolStrip, _multiSshToolStrip, msMain);
             settingsLoader.LoadSettings();
+            // A step of its own: LoadSettings stops at its first failure, and this must not depend on the rest.
+            OptionPasswords.ProtectStoredPasswords(messageCollector);
 
             MessageCollectorSetup.SetupMessageCollector(messageCollector, _messageWriters);
             MessageCollectorSetup.BuildMessageWritersFromSettings(_messageWriters);
+            _ = AppWindows.ErrorsForm.lvErrorCollector.Handle;
+            MessageCollectorSetup.WriteCollectedMessages(messageCollector, _messageWriters);
  
             Startup.Instance.InitializeProgram(messageCollector);
             Runtime.PluginService.LoadPlugins();
  
             SetMenuDependencies();
+
+            // Must be set before LoadPanelsFromXml(): on a first run with no saved pnlLayout.xml,
+            // LoadPanelsFromXml() falls back to SetDefaultLayout() -> EnsureGeneralPanel() ->
+            // PanelAdder.AddPanel(), which adds the new panel to Runtime.WindowList — a
+            // NullReferenceException if that list hasn't been created yet.
+            Runtime.WindowList = [];
 
             DockPanelLayoutLoader uiLoader = new(this, messageCollector);
             uiLoader.LoadPanelsFromXml();
@@ -230,8 +270,6 @@ namespace mRemoteNG.UI.Forms
 
             _fpChainedWindowHandle = NativeMethods.SetClipboardViewer(Handle);
 
-            Runtime.WindowList = [];
-
             if (Properties.App.Default.ResetPanels)
                 SetDefaultLayout();
             else
@@ -241,18 +279,6 @@ namespace mRemoteNG.UI.Forms
 
             Runtime.ConnectionsService.ConnectionsLoaded += ConnectionsServiceOnConnectionsLoaded;
             Runtime.ConnectionsService.ConnectionsSaved += ConnectionsServiceOnConnectionsSaved;
-            
-            // Close splash screen before loading connections to ensure password dialog appears on top
-            ProgramRoot.CloseSplash();
-
-            if (!StartupUnlockService.EnsureStartupUnlocked(this))
-            {
-                Application.Exit();
-                return;
-            }
-
-            CredsAndConsSetup credsAndConsSetup = new();
-            credsAndConsSetup.LoadCredsAndCons();
 
             // Initialize panel binding for Connections and Config panels
             UI.Panels.PanelBinder.Instance.Initialize();
@@ -443,10 +469,24 @@ namespace mRemoteNG.UI.Forms
 
         private async void FrmMain_Shown(object sender, EventArgs e)
         {
-            // Bring the main window to the front after splash screen closes
+            // Bring the main window to the front before showing any startup dialogs.
             Activate();
             BringToFront();
             NativeMethods.SetForegroundWindow(Handle);
+
+            // Close the splash screen now that the main window is already visible, then
+            // prompt for the profile password before the connection set is loaded.
+            ProgramRoot.CloseSplash();
+
+            // The master password (and a password-protected connections file) must be unlocked
+            // before anything is loaded with the encryption key.
+            if (!StartupUnlockService.EnsureStartupUnlocked(this))
+            {
+                Application.Exit();
+                return;
+            }
+
+            new CredsAndConsSetup().LoadCredsAndCons();
 
             PromptForUpdatesPreference();
             await CheckForUpdates();
@@ -521,19 +561,6 @@ namespace mRemoteNG.UI.Forms
 
         private void FrmMain_FormClosing(object sender, FormClosingEventArgs e)
         {
-            ProgramRoot.UiCultureChanged -= OnUiCultureChanged;
-            if (Runtime.WindowList != null)
-            {
-                foreach (BaseWindow window in Runtime.WindowList)
-                {
-                    window.Close();
-                }
-            }
-
-            IsClosing = true;
-
-            Hide();
-
             if (Properties.OptionsAppearancePage.Default.CloseToTray)
             {
                 Runtime.NotificationAreaIcon ??= new NotificationAreaIcon();
@@ -549,23 +576,9 @@ namespace mRemoteNG.UI.Forms
 
             if (!(Runtime.WindowList == null || Runtime.WindowList.Count == 0))
             {
-                int openConnections = 0;
-                if (pnlDock.Contents.Count > 0)
-                {
-                    foreach (IDockContent dc in pnlDock.Contents)
-                    {
-                        if (dc is not ConnectionWindow cw) continue;
-                        if (cw.Controls.Count < 1) continue;
-                        if (cw.Controls[0] is not DockPanel dp) continue;
-                        if (dp.Contents.Count > 0)
-                            openConnections += dp.Contents.Count;
-                    }
-                }
+                int openConnections = CountOpenConnections(pnlDock.Contents);
 
-                if (openConnections > 0 &&
-                    (Properties.Settings.Default.ConfirmCloseConnection == (int)ConfirmCloseEnum.All |
-                     (Properties.Settings.Default.ConfirmCloseConnection == (int)ConfirmCloseEnum.Multiple &
-                      openConnections > 1) || Properties.Settings.Default.ConfirmCloseConnection == (int)ConfirmCloseEnum.Exit))
+                if (ShouldConfirmExit(Properties.Settings.Default.ConfirmCloseConnection, openConnections))
                 {
                     DialogResult result = CTaskDialog.MessageBox(this, Application.ProductName, Language.ConfirmExitMainInstruction, "", "", "", Language.CheckboxDoNotShowThisMessageAgain, ETaskDialogButtons.YesNo, ESysIcons.Question, ESysIcons.Question);
                     if (CTaskDialog.VerificationChecked)
@@ -581,6 +594,27 @@ namespace mRemoteNG.UI.Forms
                 }
             }
 
+            // Changed options would otherwise be lost without a question (#3249)
+            if (AppWindows.OptionsFormWindow?.ConfirmUnsavedChanges() == false)
+            {
+                e.Cancel = true;
+                return;
+            }
+
+            ProgramRoot.UiCultureChanged -= OnUiCultureChanged;
+
+            IsClosing = true;
+
+            if (Runtime.WindowList != null)
+            {
+                foreach (BaseWindow window in Runtime.WindowList)
+                {
+                    window.Close();
+                }
+            }
+
+            Hide();
+
             NativeMethods.ChangeClipboardChain(Handle, _fpChainedWindowHandle);
             SystemEvents.DisplaySettingsChanged -= _advancedWindowMenu.OnDisplayChanged;
             Shutdown.Cleanup(_quickConnectToolStrip, _externalToolsToolStrip, _multiSshToolStrip, this);
@@ -588,6 +622,35 @@ namespace mRemoteNG.UI.Forms
             Shutdown.StartUpdate();
 
             Debug.Print("[END] - " + Convert.ToString(DateTime.Now, CultureInfo.InvariantCulture));
+        }
+
+        /// <summary>
+        /// Counts the connection tabs in the connection panels. Other documents, like the
+        /// Options window, are shown in the same panel and stay there when hidden.
+        /// </summary>
+        internal static int CountOpenConnections(IEnumerable<IDockContent> panels)
+        {
+            int openConnections = 0;
+            foreach (IDockContent dc in panels)
+            {
+                if (dc is not ConnectionWindow cw) continue;
+                if (cw.Controls.Count < 1) continue;
+                if (cw.Controls[0] is not DockPanel dp) continue;
+                openConnections += dp.Contents.OfType<ConnectionTab>().Count();
+            }
+            return openConnections;
+        }
+
+        internal static bool ShouldConfirmExit(int confirmCloseConnection, int openConnections)
+        {
+            if (openConnections < 1) return false;
+
+            return confirmCloseConnection switch
+            {
+                (int)ConfirmCloseEnum.All or (int)ConfirmCloseEnum.Exit => true,
+                (int)ConfirmCloseEnum.Multiple => openConnections > 1,
+                _ => false
+            };
         }
 
         #endregion

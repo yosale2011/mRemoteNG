@@ -9,6 +9,7 @@ using mRemoteNG.App;
 using mRemoteNG.Connection;
 using mRemoteNG.Connection.Protocol;
 using mRemoteNG.Connection.Protocol.Http;
+using mRemoteNG.Connection.Protocol.Terminal;
 using mRemoteNG.Connection.Protocol.RDP;
 using mRemoteNG.Connection.Protocol.VNC;
 using mRemoteNG.Container;
@@ -136,8 +137,12 @@ namespace mRemoteNG.Config.Serializers.ConnectionSerializers.Sql
             connectionInfo.RedirectPorts = MiscTools.GetBooleanValue(dataRow["RedirectPorts"]);
             connectionInfo.RedirectPrinters = MiscTools.GetBooleanValue(dataRow["RedirectPrinters"]);
             connectionInfo.RedirectSmartCards = MiscTools.GetBooleanValue(dataRow["RedirectSmartCards"]);
+            if (dataRow.Table.Columns.Contains("RedirectWebAuthn"))
+                connectionInfo.RedirectWebAuthn = MiscTools.GetBooleanValue(dataRow["RedirectWebAuthn"]);
             connectionInfo.RedirectSound = (RDPSounds)Enum.Parse(typeof(RDPSounds), (string)dataRow["RedirectSound"]);
             connectionInfo.RenderingEngine = (HTTPBase.RenderingEngine)Enum.Parse(typeof(HTTPBase.RenderingEngine), (string)dataRow["RenderingEngine"]);
+            if (dataRow.Table.Columns.Contains("TerminalBackend") && Enum.TryParse(Convert.ToString(dataRow["TerminalBackend"]), out TerminalBackend terminalBackend))
+                connectionInfo.TerminalBackend = terminalBackend;
             connectionInfo.Resolution = Enum.TryParse<RDPResolutions>((string)dataRow["Resolution"], true, out var resolution)
                 ? resolution
                 : RDPResolutions.SmartSize;
@@ -218,8 +223,12 @@ namespace mRemoteNG.Config.Serializers.ConnectionSerializers.Sql
             connectionInfo.Inheritance.RedirectPorts = MiscTools.GetBooleanValue(dataRow["InheritRedirectPorts"]);
             connectionInfo.Inheritance.RedirectPrinters = MiscTools.GetBooleanValue(dataRow["InheritRedirectPrinters"]);
             connectionInfo.Inheritance.RedirectSmartCards = MiscTools.GetBooleanValue(dataRow["InheritRedirectSmartCards"]);
+            if (dataRow.Table.Columns.Contains("InheritRedirectWebAuthn"))
+                connectionInfo.Inheritance.RedirectWebAuthn = MiscTools.GetBooleanValue(dataRow["InheritRedirectWebAuthn"]);
             connectionInfo.Inheritance.RedirectSound = MiscTools.GetBooleanValue(dataRow["InheritRedirectSound"]);
             connectionInfo.Inheritance.RenderingEngine = MiscTools.GetBooleanValue(dataRow["InheritRenderingEngine"]);
+            if (dataRow.Table.Columns.Contains("InheritTerminalBackend"))
+                connectionInfo.Inheritance.TerminalBackend = MiscTools.GetBooleanValue(dataRow["InheritTerminalBackend"]);
             connectionInfo.Inheritance.Resolution = MiscTools.GetBooleanValue(dataRow["InheritResolution"]);
             connectionInfo.Inheritance.SoundQuality = MiscTools.GetBooleanValue(dataRow["InheritSoundQuality"]);
             connectionInfo.Inheritance.SSHOptions = MiscTools.GetBooleanValue(dataRow["InheritSSHOptions"]);

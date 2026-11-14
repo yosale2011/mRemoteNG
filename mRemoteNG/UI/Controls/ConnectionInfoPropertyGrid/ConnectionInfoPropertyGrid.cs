@@ -6,15 +6,18 @@ using System.Linq;
 using System.Reflection;
 using System.Windows.Forms;
 using mRemoteNG.App;
+using mRemoteNG.App.Info;
 using mRemoteNG.Connection;
 using mRemoteNG.Connection.Protocol;
 using mRemoteNG.Connection.Protocol.RDP;
 using mRemoteNG.Connection.Protocol.VNC;
+using mRemoteNG.Container;
 using mRemoteNG.Messages;
 using mRemoteNG.Properties;
 using mRemoteNG.Security;
 using mRemoteNG.Tools;
 using mRemoteNG.Tools.Attributes;
+using mRemoteNG.Tree;
 using mRemoteNG.Tree.Root;
 using mRemoteNG.Resources.Language;
 using System.Runtime.Versioning;
@@ -254,6 +257,8 @@ namespace mRemoteNG.UI.Controls.ConnectionInfoPropertyGrid {
                 strHide.Add(nameof(AbstractConnectionRecord.RDGatewayExternalCredentialProvider));
                 strHide.Add(nameof(AbstractConnectionRecord.RDGatewayUserViaAPI));
                 strHide.Add(nameof(AbstractConnectionRecord.RDGatewayAccessToken));
+            } else if (SelectedConnectionInfo.RDGatewayUseConnectionCredentials == RDGatewayUseConnectionCredentials.No) {
+                strHide.Add(nameof(AbstractConnectionRecord.RDGatewayAccessToken));
             } else if (SelectedConnectionInfo.RDGatewayUseConnectionCredentials == RDGatewayUseConnectionCredentials.ExternalCredentialProvider) {
                 strHide.Add(nameof(AbstractConnectionRecord.RDGatewayDomain));
                 strHide.Add(nameof(AbstractConnectionRecord.RDGatewayPassword));
@@ -267,7 +272,8 @@ namespace mRemoteNG.UI.Controls.ConnectionInfoPropertyGrid {
                 strHide.Add(nameof(AbstractConnectionRecord.RDGatewayUserViaAPI));
             }
 
-            if (SelectedConnectionInfo.Resolution != RDPResolutions.Fullscreen) {
+            // SmartSize scales client-side; Fit To Panel and Fullscreen can renegotiate the session resolution.
+            if (SelectedConnectionInfo.Resolution == RDPResolutions.SmartSize) {
                 strHide.Add(nameof(AbstractConnectionRecord.AutomaticResize));
             }
 
@@ -312,13 +318,38 @@ namespace mRemoteNG.UI.Controls.ConnectionInfoPropertyGrid {
                 SelectedConnectionInfo.SetDefaultPort();
             } else if (e.ChangedItem.Label == Language.Name) {
                 if (Settings.Default.SetHostnameLikeDisplayName) {
-                    if (!string.IsNullOrEmpty(SelectedConnectionInfo.Name))
+                    if (!string.IsNullOrEmpty(SelectedConnectionInfo.Name)) {
                         SelectedConnectionInfo.Hostname = SelectedConnectionInfo.Name;
+                        WarnIfHostnameAlreadyExists();
+                    }
                 }
+            } else if (e.ChangedItem.Label == Language.HostnameIp) {
+                WarnIfHostnameAlreadyExists();
             }
 
             if (IsShowingDefaultProperties)
                 DefaultConnectionInfo.Instance.SaveTo(Settings.Default, a => "ConDefault" + a);
+        }
+
+        private void WarnIfHostnameAlreadyExists() {
+            if (IsShowingDefaultProperties || SelectedConnectionInfo is ContainerInfo)
+                return;
+
+            ConnectionTreeModel treeModel = Runtime.ConnectionsService?.ConnectionTreeModel;
+            if (treeModel == null)
+                return;
+
+            List<string> duplicatePaths = DuplicateHostnameFinder
+                .FindDuplicates(treeModel.GetRecursiveChildList(), SelectedConnectionInfo)
+                .Select(c => $"{DuplicateHostnameFinder.GetTreePath(c)} ({c.Protocol})")
+                .ToList();
+            if (duplicatePaths.Count == 0)
+                return;
+
+            MessageBox.Show(this,
+                string.Format(Language.HostnameAlreadyExists, SelectedConnectionInfo.Hostname,
+                    Environment.NewLine + string.Join(Environment.NewLine, duplicatePaths)),
+                GeneralAppInfo.ProductName, MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
 
         private void UpdateRootInfoNode(PropertyValueChangedEventArgs e) {
@@ -351,6 +382,8 @@ namespace mRemoteNG.UI.Controls.ConnectionInfoPropertyGrid {
         private void UpdateInheritanceNode() {
             if (IsShowingDefaultProperties && IsShowingInheritance)
                 DefaultConnectionInheritance.Instance.SaveTo(Settings.Default, a => "InhDefault" + a);
+            else if (PropertyMode == PropertyMode.Inheritance)
+                SelectedConnectionInfo?.RaiseInheritanceChanged();
         }
 
         private void pGrid_PropertyValueChanged(object s, PropertyValueChangedEventArgs e) {

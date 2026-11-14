@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Security;
 using System.Windows.Forms;
@@ -8,6 +9,7 @@ using mRemoteNG.Connection;
 using mRemoteNG.Connection.Protocol;
 using mRemoteNG.Connection.Protocol.Http;
 using mRemoteNG.Connection.Protocol.RDP;
+using mRemoteNG.Connection.Protocol.Terminal;
 using mRemoteNG.Connection.Protocol.VNC;
 using mRemoteNG.Container;
 using mRemoteNG.Messages;
@@ -19,6 +21,7 @@ using mRemoteNG.Tree.Root;
 using mRemoteNG.UI.Forms;
 using mRemoteNG.UI.TaskDialog;
 using mRemoteNG.Resources.Language;
+using mRemoteNG.Security.SymmetricEncryption;
 using System.Runtime.Versioning;
 
 namespace mRemoteNG.Config.Serializers.ConnectionSerializers.Xml
@@ -26,12 +29,21 @@ namespace mRemoteNG.Config.Serializers.ConnectionSerializers.Xml
     [SupportedOSPlatform("windows")]
     public class XmlConnectionsDeserializer(Func<Optional<SecureString>>? authenticationRequestor = null) : IDeserializer<string, ConnectionTreeModel>
     {
+        // Marker written to the root element's KeyProtection attribute by XmlRootNodeSerializer when
+        // the file was saved with DPAPI protection.
+        private const string DpapiKeyProtectionMarker = "Dpapi";
+
         private XmlDocument _xmlDocument;
         private double _confVersion;
         private XmlConnectionsDecryptor _decryptor;
+        private bool _isDpapiProtected;
         private readonly string ConnectionFileName = "";
-        private const double MaxSupportedConfVersion = 2.8;
+        // Must match the newest version written by XmlConnectionSerializerFactory,
+        // otherwise the app refuses to open files it saved itself
+        internal const double MaxSupportedConfVersion = 2.9;
         private readonly RootNodeInfo _rootNodeInfo = new(RootNodeType.Connection);
+        // Ids handed out while reading the current file, to keep each one unique.
+        private readonly HashSet<string> _connectionIds = new(StringComparer.Ordinal);
 
         public Func<Optional<SecureString>>? AuthenticationRequestor { get; set; } = authenticationRequestor;
 
@@ -45,6 +57,7 @@ namespace mRemoteNG.Config.Serializers.ConnectionSerializers.Xml
             if (string.IsNullOrEmpty(xml)) return null;
             try
             {
+                _connectionIds.Clear();
                 LoadXmlConnectionData(xml);
                 ValidateConnectionFileVersion();
 
@@ -54,8 +67,12 @@ namespace mRemoteNG.Config.Serializers.ConnectionSerializers.Xml
                 ConnectionTreeModel connectionTreeModel = new();
                 connectionTreeModel.AddRootNode(_rootNodeInfo);
 
-
-                if (_confVersion > 1.3)
+                if (_isDpapiProtected)
+                {
+                    string dpapiProtectedString = _xmlDocument.DocumentElement?.Attributes["Protected"]?.Value;
+                    _decryptor.VerifyDpapiProtectedRoot(dpapiProtectedString);
+                }
+                else if (_confVersion > 1.3)
                 {
                     string protectedString = _xmlDocument.DocumentElement?.Attributes["Protected"]?.Value;
                     if (!_decryptor.ConnectionsFileIsAuthentic(protectedString, _rootNodeInfo.PasswordString.ConvertToSecureString()))
@@ -125,7 +142,16 @@ namespace mRemoteNG.Config.Serializers.ConnectionSerializers.Xml
 
         private void CreateDecryptor(RootNodeInfo rootNodeInfo, XmlElement? connectionsRootElement = null)
         {
-            if (_confVersion >= 2.6)
+            _isDpapiProtected = connectionsRootElement?.GetAttributeAsString("KeyProtection") == DpapiKeyProtectionMarker;
+
+            if (_isDpapiProtected)
+            {
+                _decryptor = new XmlConnectionsDecryptor(new DpapiCryptographyProvider(), rootNodeInfo)
+                {
+                    AuthenticationRequestor = AuthenticationRequestor
+                };
+            }
+            else if (_confVersion >= 2.6)
             {
                 BlockCipherEngines engine = connectionsRootElement.GetAttributeAsEnum<BlockCipherEngines>("EncryptionEngine");
                 BlockCipherModes mode = connectionsRootElement.GetAttributeAsEnum<BlockCipherModes>("BlockCipherMode");
@@ -163,10 +189,21 @@ namespace mRemoteNG.Config.Serializers.ConnectionSerializers.Xml
                             parentContainer.AddChild(connectionInfo);
                             break;
                         case TreeNodeType.Container:
-                            ContainerInfo containerInfo = new();
+                            ContainerInfo containerInfo;
 
                             if (_confVersion >= 0.9)
-                                containerInfo.CopyFrom(GetConnectionInfoFromXml(xmlNode));
+                            {
+                                // Built with the Id from the file: CopyFrom cannot carry the read-only
+                                // ConstantID, so a folder created first and filled in afterwards got a
+                                // new Id on every load.
+                                ConnectionInfo folderInfo = GetConnectionInfoFromXml(xmlNode);
+                                containerInfo = new ContainerInfo(folderInfo.ConstantID);
+                                containerInfo.CopyFrom(folderInfo);
+                            }
+                            else
+                            {
+                                containerInfo = new ContainerInfo();
+                            }
                             if (_confVersion >= 0.8)
                             {
                                 containerInfo.IsExpanded = xmlNode.GetAttributeAsBool("Expanded");
@@ -192,8 +229,12 @@ namespace mRemoteNG.Config.Serializers.ConnectionSerializers.Xml
                 return null;
 
             string connectionId = xmlnode.GetAttributeAsString("Id");
-            if (string.IsNullOrWhiteSpace(connectionId))
+            // A file can carry the same Id on two nodes, typically a copy that kept the original's
+            // Id. Everything that looks a connection up by its Id would then only ever reach one of
+            // them, so the later node gets a fresh Id, which the next save writes back.
+            if (string.IsNullOrWhiteSpace(connectionId) || _connectionIds.Contains(connectionId))
                 connectionId = Guid.NewGuid().ToString();
+            _connectionIds.Add(connectionId);
             ConnectionInfo connectionInfo = new(connectionId);
 
             try
@@ -412,8 +453,10 @@ namespace mRemoteNG.Config.Serializers.ConnectionSerializers.Xml
                 if (_confVersion >= 1.9)
                 {
                     connectionInfo.RenderingEngine = xmlnode.GetAttributeAsEnum<HTTPBase.RenderingEngine>("RenderingEngine");
+                    connectionInfo.TerminalBackend = xmlnode.GetAttributeAsEnum<TerminalBackend>("TerminalBackend");
                     connectionInfo.MacAddress = xmlnode.GetAttributeAsString("MacAddress");
                     connectionInfo.Inheritance.RenderingEngine = xmlnode.GetAttributeAsBool("InheritRenderingEngine");
+                    connectionInfo.Inheritance.TerminalBackend = xmlnode.GetAttributeAsBool("InheritTerminalBackend");
                     connectionInfo.Inheritance.MacAddress = xmlnode.GetAttributeAsBool("InheritMacAddress");
                 }
 
@@ -539,6 +582,22 @@ namespace mRemoteNG.Config.Serializers.ConnectionSerializers.Xml
                     connectionInfo.RDGatewayUserViaAPI = xmlnode.GetAttributeAsString("RDGatewayUserViaAPI");
                     connectionInfo.Inheritance.RDGatewayExternalCredentialProvider = xmlnode.GetAttributeAsBool("InheritRDGatewayExternalCredentialProvider");
                     connectionInfo.Inheritance.RDGatewayUserViaAPI = xmlnode.GetAttributeAsBool("InheritRDGatewayUserViaAPI");
+                }
+                else
+                {
+                    // Files older than 2.7 (mRemoteNG 1.76 and earlier) have no RedirectClipboard attribute. Those
+                    // versions never set the option, so the RDP client shared the clipboard by default. Keep it shared
+                    // instead of falling back to ConDefaultRedirectClipboard (false), which silently disabled copy and
+                    // paste for every upgraded connection.
+                    connectionInfo.RedirectClipboard = true;
+                }
+
+                if (_confVersion >= 2.9)
+                {
+                    connectionInfo.Color = xmlnode.GetAttributeAsString("Color");
+                    connectionInfo.Inheritance.Color = xmlnode.GetAttributeAsBool("InheritColor");
+                    connectionInfo.RedirectWebAuthn = xmlnode.GetAttributeAsBool("RedirectWebAuthn");
+                    connectionInfo.Inheritance.RedirectWebAuthn = xmlnode.GetAttributeAsBool("InheritRedirectWebAuthn");
                 }
 
                 switch (_confVersion)

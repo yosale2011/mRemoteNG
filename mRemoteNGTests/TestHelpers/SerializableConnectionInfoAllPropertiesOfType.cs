@@ -53,6 +53,7 @@
         public TType RedirectClipboard { get; set; }
         public TType RedirectPorts { get; set; }
 		public TType RedirectSmartCards { get; set; }
+		public TType RedirectWebAuthn { get; set; }
 		public TType RedirectSound { get; set; }
 		public TType SoundQuality { get; set; }
 		public TType RedirectAudioCapture { get; set; }
@@ -87,5 +88,13 @@
 		public TType EC2InstanceId { get; set; }
 		public TType ExternalAddressProvider { get; set; }
 		public TType EC2Region { get; set; }
+		public TType Color { get; set; }
+		public TType TabColor { get; set; }
+		public TType ConnectionFrameColor { get; set; }
+		public TType TerminalBackend { get; set; }
+		public TType UseRedirectionServerName { get; set; }
+		public TType VaultOpenbaoMount { get; set; }
+		public TType VaultOpenbaoRole { get; set; }
+		public TType VaultOpenbaoSecretEngine { get; set; }
 	}
 }

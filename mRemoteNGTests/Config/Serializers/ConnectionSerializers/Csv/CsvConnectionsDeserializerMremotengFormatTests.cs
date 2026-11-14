@@ -6,6 +6,7 @@ using mRemoteNG.Connection;
 using mRemoteNG.Connection.Protocol;
 using mRemoteNG.Connection.Protocol.Http;
 using mRemoteNG.Connection.Protocol.RDP;
+using mRemoteNG.Connection.Protocol.Terminal;
 using mRemoteNG.Connection.Protocol.VNC;
 using mRemoteNG.Credential;
 using mRemoteNG.Security;
@@ -47,6 +48,68 @@ namespace mRemoteNGTests.Config.Serializers.ConnectionSerializers.Csv
             connection?.RemoveParent();
             var propertyValue = typeof(ConnectionInfoInheritance).GetProperty(propertyToCheck)?.GetValue(connection?.Inheritance);
             return propertyValue;
+        }
+
+        [Test]
+        public void ColoursSurviveAnExportAndAnImport()
+        {
+            var original = GetTestConnection();
+            original.Color = "#336699";
+            original.TabColor = "#AA5500";
+            original.ConnectionFrameColor = ConnectionFrameColor.Purple;
+
+            var connection = _deserializer.Deserialize(_serializer.Serialize(original)).GetRecursiveChildList().First();
+
+            Assert.That(connection.Color, Is.EqualTo("#336699"));
+            Assert.That(connection.TabColor, Is.EqualTo("#AA5500"));
+            Assert.That(connection.ConnectionFrameColor, Is.EqualTo(ConnectionFrameColor.Purple));
+        }
+
+        [Test]
+        public void FileFromAnExportWithTheMergedRedirectHeaderIsReadInPlace()
+        {
+            var original = GetTestConnection();
+            var csv = _serializer.Serialize(original);
+            var olderExport = csv.Replace("RedirectDiskDrivesCustom;RedirectPorts;", "RedirectDiskDrivesCustomRedirectPorts;");
+            Assume.That(olderExport, Is.Not.EqualTo(csv));
+
+            var connection = _deserializer.Deserialize(olderExport).GetRecursiveChildList().First();
+
+            Assert.That(connection.RedirectPorts, Is.EqualTo(original.RedirectPorts));
+            Assert.That(connection.RedirectSound, Is.EqualTo(original.RedirectSound));
+            Assert.That(connection.VNCProxyPort, Is.EqualTo(original.VNCProxyPort));
+            Assert.That(connection.EC2Region, Is.EqualTo(original.EC2Region));
+        }
+
+        [TestCase("pass;word")]
+        [TestCase("say \"hi\"")]
+        [TestCase("two\r\nlines")]
+        [TestCase("\"starts with a quote")]
+        public void ValuesWithSeparatorsQuotesAndLineBreaksSurviveExportAndImport(string value)
+        {
+            var original = GetTestConnection();
+            original.Description = value;
+            original.Password = value;
+            var csv = _serializer.Serialize(original);
+
+            var connection = _deserializer.Deserialize(csv).GetRecursiveChildList().First();
+
+            Assert.That(connection.Description, Is.EqualTo(value));
+            Assert.That(connection.Password, Is.EqualTo(value));
+            Assert.That(connection.Hostname, Is.EqualTo(original.Hostname));
+            Assert.That(connection.EC2Region, Is.EqualTo(original.EC2Region));
+        }
+
+        [Test]
+        public void HandWrittenFileWithAQuotedPasswordIsImported()
+        {
+            var csv = "Name;Id;Parent;NodeType;Password;Hostname\r\n" +
+                      "SampleVM;;;Connection;\"pa;ss\"\"word\";10.100.10.111\r\n";
+
+            var connection = _deserializer.Deserialize(csv).GetRecursiveChildList().First();
+
+            Assert.That(connection.Password, Is.EqualTo("pa;ss\"word"));
+            Assert.That(connection.Hostname, Is.EqualTo("10.100.10.111"));
         }
 
         [Test]
@@ -105,6 +168,7 @@ namespace mRemoteNGTests.Config.Serializers.ConnectionSerializers.Csv
                 UseVmId = false,
                 UseEnhancedMode = false,
                 RenderingEngine = HTTPBase.RenderingEngine.EdgeChromium,
+                TerminalBackend = TerminalBackend.WindowsTerminal,
                 RDPAuthenticationLevel = AuthenticationLevel.WarnOnFailedAuth,
                 Colors = RDPColors.Colors16Bit,
                 Resolution = RDPResolutions.SmartSize,
@@ -123,6 +187,7 @@ namespace mRemoteNGTests.Config.Serializers.ConnectionSerializers.Csv
                 RedirectPorts = true,
                 RedirectPrinters = true,
                 RedirectSmartCards = true,
+                RedirectWebAuthn = true,
                 RedirectSound = RDPSounds.LeaveAtRemoteComputer,
                 RedirectAudioCapture = true,
                 RedirectKeys = true,

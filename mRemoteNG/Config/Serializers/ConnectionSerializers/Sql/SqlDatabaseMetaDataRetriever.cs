@@ -152,6 +152,21 @@ namespace mRemoteNG.Config.Serializers.ConnectionSerializers.Sql
         /// also has to pin the schema to the one <see cref="InitializeDatabaseSchema"/> creates,
         /// otherwise a same-named table in another schema would be mistaken for ours.
         /// </remarks>
+        /// <summary>
+        /// The database the connection actually landed in, which is not always the one in
+        /// settings: with the Database field left blank the server falls back to the login's
+        /// default database. Comparing against a name that never matches makes the table check
+        /// report our tables as missing, and the initializer then drops and recreates them,
+        /// destroying whatever was stored there.
+        /// </summary>
+        internal static string ResolveDatabaseName(IDatabaseConnector databaseConnector)
+        {
+            string catalog = databaseConnector.DbConnection()?.Database;
+            return string.IsNullOrEmpty(catalog)
+                ? Properties.OptionsDBsPage.Default.SQLDatabaseName
+                : catalog;
+        }
+
         internal static string BuildTableExistsQuery(IDatabaseConnector databaseConnector)
         {
             return databaseConnector is MSSqlDatabaseConnector
@@ -166,7 +181,7 @@ namespace mRemoteNG.Config.Serializers.ConnectionSerializers.Sql
             try
             {
                 // ANSI SQL way.  Works in PostgreSQL, MSSQL, MySQL.
-                string database_name = Properties.OptionsDBsPage.Default.SQLDatabaseName;
+                string database_name = ResolveDatabaseName(databaseConnector);
                 DbCommand cmd = databaseConnector.DbCommand(BuildTableExistsQuery(databaseConnector));
                 
                 DbParameter tableNameParam = cmd.CreateParameter();
@@ -288,8 +303,10 @@ CREATE TABLE [dbo].[tblCons] (
     [RedirectPorts] bit NOT NULL,
     [RedirectPrinters] bit NOT NULL,
     [RedirectSmartCards] bit NOT NULL,
+    [RedirectWebAuthn] bit NOT NULL,
     [RedirectSound] varchar(64) NOT NULL,
     [RenderingEngine] varchar(32) NULL,
+    [TerminalBackend] varchar(32) NULL,
     [Resolution] varchar(32) NOT NULL,
     [SSHOptions] varchar(1024) NOT NULL,
     [SSHTunnelConnectionName] varchar(128) NOT NULL,
@@ -359,8 +376,10 @@ CREATE TABLE [dbo].[tblCons] (
     [InheritRedirectPorts] bit NOT NULL,
     [InheritRedirectPrinters] bit NOT NULL,
     [InheritRedirectSmartCards] bit NOT NULL,
+    [InheritRedirectWebAuthn] bit NOT NULL,
     [InheritRedirectSound] bit NOT NULL,
     [InheritRenderingEngine] bit NOT NULL,
+    [InheritTerminalBackend] bit NOT NULL,
     [InheritResolution] bit NOT NULL,
     [InheritSSHOptions] bit NOT NULL,
     [InheritSSHTunnelConnectionName] bit NOT NULL,
@@ -493,8 +512,10 @@ CREATE TABLE `tblCons` (
     `RedirectPorts` tinyint NOT NULL,
     `RedirectPrinters` tinyint NOT NULL,
     `RedirectSmartCards` tinyint NOT NULL,
+    `RedirectWebAuthn` tinyint NOT NULL,
     `RedirectSound` varchar(64) NOT NULL,
     `RenderingEngine` varchar(32) DEFAULT NULL,
+    `TerminalBackend` varchar(32) DEFAULT NULL,
     `Resolution` varchar(32) NOT NULL,
     `SSHOptions` varchar(1024) NOT NULL,
     `SSHTunnelConnectionName` varchar(128) NOT NULL,
@@ -564,8 +585,10 @@ CREATE TABLE `tblCons` (
     `InheritRedirectPorts` tinyint NOT NULL,
     `InheritRedirectPrinters` tinyint NOT NULL,
     `InheritRedirectSmartCards` tinyint NOT NULL,
+    `InheritRedirectWebAuthn` tinyint NOT NULL,
     `InheritRedirectSound` tinyint NOT NULL,
     `InheritRenderingEngine` tinyint NOT NULL,
+    `InheritTerminalBackend` tinyint NOT NULL,
     `InheritResolution` tinyint NOT NULL,
     `InheritSSHOptions` tinyint NOT NULL,
     `InheritSSHTunnelConnectionName` tinyint NOT NULL,

@@ -33,6 +33,14 @@ namespace mRemoteNG.UI.Controls.ConnectionTree
 
         private readonly ConnectionTreeSearchTextFilter _connectionTreeSearchTextFilter = new();
 
+        // Folders the search filter expanded to reveal matches; collapsed again when the filter is cleared.
+        private readonly HashSet<ContainerInfo> _containersExpandedByFilter = new();
+
+        // ContainerInfo.IsExpanded is saved to the connections file, and changing it counts as an
+        // edit (save + rolling backup when saving on edit). Expansion done only to show search
+        // results must not touch it, or every keystroke in the search box rewrites the file.
+        private bool _filterIsChangingExpansion;
+
         private bool _nodeInEditMode;
         private bool _allowEdit;
         private ConnectionContextMenu _contextMenu;
@@ -237,13 +245,15 @@ namespace mRemoteNG.UI.Controls.ConnectionTree
             Collapsed += (sender, args) =>
             {
                 if (args.Model is not ContainerInfo container) return;
-                container.IsExpanded = false;
+                if (!_filterIsChangingExpansion)
+                    container.IsExpanded = false;
                 AutoResizeColumn(Columns[0]);
             };
             Expanded += (sender, args) =>
             {
                 if (args.Model is not ContainerInfo container) return;
-                container.IsExpanded = true;
+                if (!_filterIsChangingExpansion)
+                    container.IsExpanded = true;
                 AutoResizeColumn(Columns[0]);
             };
             SelectionChanged += TvConnections_AfterSelect;
@@ -252,8 +262,10 @@ namespace mRemoteNG.UI.Controls.ConnectionTree
             CellToolTipShowing += TvConnections_CellToolTipShowing;
             ModelCanDrop += _dragAndDropHandler.HandleEvent_ModelCanDrop;
             ModelDropped += _dragAndDropHandler.HandleEvent_ModelDropped;
-            BeforeLabelEdit += OnBeforeLabelEdit;
-            AfterLabelEdit += OnAfterLabelEdit;
+            CellEditStarting += OnCellEditStarting;
+            CellEditFinishing += OnCellEditFinishing;
+            // ObjectListView raises FormatCell only when this is on, and Color is applied there.
+            UseCellFormatEvents = true;
             FormatCell += ConnectionTree_FormatCell;
         }
 
@@ -621,8 +633,7 @@ namespace mRemoteNG.UI.Controls.ConnectionTree
 
                 SelectObject(newRoot, true);
                 EnsureModelVisible(newRoot);
-                _allowEdit = true;
-                SelectedItem.BeginEdit();
+                BeginRename();
             }
             catch (Exception ex)
             {
@@ -649,8 +660,7 @@ namespace mRemoteNG.UI.Controls.ConnectionTree
             ExpandWithoutAnimation(parent);
             SelectObject(newNode, true);
             EnsureModelVisible(newNode);
-            _allowEdit = true;
-            SelectedItem.BeginEdit();
+            BeginRename();
         }
 
         public void DuplicateSelectedNode()
@@ -671,8 +681,18 @@ namespace mRemoteNG.UI.Controls.ConnectionTree
         {
             if (SelectedItem == null) return;
             _slowClickRenameHandler?.Cancel();
+            BeginRename();
+        }
+
+        // The native ListViewItem.BeginEdit() places its edit box at the native text position,
+        // while ObjectListView draws the text after the indent, expander and icon, so the box
+        // was shifted and the old name showed behind it (#3247). ObjectListView's own cell
+        // editor is placed by the tree renderer, over the text as drawn.
+        private void BeginRename()
+        {
+            if (SelectedItem == null) return;
             _allowEdit = true;
-            SelectedItem.BeginEdit();
+            StartCellEdit(SelectedItem, 0);
         }
 
         public void DeleteSelectedNode()
@@ -730,8 +750,12 @@ namespace mRemoteNG.UI.Controls.ConnectionTree
         /// <param name="filterText">The text to filter by</param>
         public void ApplyFilter(string filterText)
         {
-            UseFiltering = true;
             _connectionTreeSearchTextFilter.FilterText = filterText;
+            // TreeListView ignores Expand() on rows it is not showing, so expand
+            // the paths to matches before the filter hides their folders
+            ModelFilter = null;
+            ExpandAncestorsOfFilterMatches();
+            UseFiltering = true;
             ModelFilter = _connectionTreeSearchTextFilter;
         }
 
@@ -742,6 +766,88 @@ namespace mRemoteNG.UI.Controls.ConnectionTree
         {
             UseFiltering = false;
             ResetColumnFiltering();
+            CollapseContainersExpandedByFilter();
+        }
+
+        /// <summary>
+        /// TreeListView only evaluates the filter against children of expanded
+        /// branches, so matches inside collapsed folders would stay hidden.
+        /// Expand every folder on the path to a match so the user can see it
+        /// and where it lives.
+        /// </summary>
+        private void ExpandAncestorsOfFilterMatches()
+        {
+            if (ConnectionTreeModel == null) return;
+
+            HashSet<ContainerInfo> containersToExpand = [];
+            foreach (ConnectionInfo node in ConnectionTreeModel.GetRecursiveChildList())
+            {
+                if (!_connectionTreeSearchTextFilter.Filter(node)) continue;
+
+                for (ContainerInfo parent = node.Parent; parent != null; parent = parent.Parent)
+                {
+                    if (!IsExpanded(parent))
+                        containersToExpand.Add(parent);
+                }
+            }
+
+            if (containersToExpand.Count == 0) return;
+
+            _filterIsChangingExpansion = true;
+            try
+            {
+                // expand outermost folders first so each child branch exists when it is expanded
+                foreach (ContainerInfo container in containersToExpand.OrderBy(GetDepth))
+                {
+                    ExpandWithoutAnimation(container);
+                    _containersExpandedByFilter.Add(container);
+                }
+            }
+            finally
+            {
+                _filterIsChangingExpansion = false;
+            }
+
+            AutoResizeColumn(Columns[0]);
+        }
+
+        /// <summary>
+        /// Returns folders that were opened only to reveal filter matches to
+        /// their previous collapsed state, so searching does not permanently
+        /// change (and save) the user's tree layout.
+        /// </summary>
+        private void CollapseContainersExpandedByFilter()
+        {
+            if (_containersExpandedByFilter.Count == 0) return;
+
+            _filterIsChangingExpansion = true;
+            try
+            {
+                // collapse innermost folders first so each branch is still visible when collapsed
+                foreach (ContainerInfo container in _containersExpandedByFilter.OrderByDescending(GetDepth).ToList())
+                {
+                    if (!IsExpanded(container)) continue;
+
+                    // skip the collapse animation; it would run for every folder at once
+                    _collapseFinalizing.Add(container);
+                    Collapse(container);
+                }
+            }
+            finally
+            {
+                _filterIsChangingExpansion = false;
+            }
+
+            _containersExpandedByFilter.Clear();
+            AutoResizeColumn(Columns[0]);
+        }
+
+        private static int GetDepth(ConnectionInfo node)
+        {
+            int depth = 0;
+            for (ContainerInfo parent = node.Parent; parent != null; parent = parent.Parent)
+                depth++;
+            return depth;
         }
 
         private void HandleCollectionChanged(object sender, NotifyCollectionChangedEventArgs args)
@@ -847,20 +953,37 @@ namespace mRemoteNG.UI.Controls.ConnectionTree
             }
         }
 
-        private void OnBeforeLabelEdit(object sender, LabelEditEventArgs e)
+        private void OnCellEditStarting(object sender, CellEditEventArgs e)
         {
-            if (_nodeInEditMode || sender is not ConnectionTree)
+            if (_nodeInEditMode)
                 return;
 
-            if (!_allowEdit || SelectedNode is PuttySessionInfo || SelectedNode is RootPuttySessionsNodeInfo)
+            if (!_allowEdit || e.RowObject is PuttySessionInfo || e.RowObject is RootPuttySessionsNodeInfo)
             {
-                e.CancelEdit = true;
+                e.Cancel = true;
+                _allowEdit = false;
                 return;
             }
 
             _nodeInEditMode = true;
-            _contextMenu.DisableShortcutKeys();
+            _contextMenu?.DisableShortcutKeys();
+            e.Control.Bounds = CalculateRenameEditorBounds(e.Control.Bounds, e.ListViewItem.IndentCount);
         }
+
+        /// <summary>
+        /// ObjectListView indents the editor by the small image width per tree level, but the tree
+        /// renderer indents the text by TreeRenderer.PIXELS_PER_LEVEL; with display scaling the
+        /// images are wider and the editor moves right of the text, more on each level. The editor
+        /// is also only as wide as the current name. Move it over the text and let it fill the row.
+        /// </summary>
+        internal System.Drawing.Rectangle CalculateRenameEditorBounds(System.Drawing.Rectangle editorBounds, int indentCount)
+        {
+            editorBounds.X += indentCount * (TreeRenderer.PIXELS_PER_LEVEL - SmallImageSize.Width);
+            editorBounds.Width = Math.Max(MinimumRenameEditorWidth, ClientSize.Width - editorBounds.X);
+            return editorBounds;
+        }
+
+        private const int MinimumRenameEditorWidth = 50;
 
         private void ConnectionTree_FormatCell(object sender, FormatCellEventArgs e)
         {
@@ -883,15 +1006,24 @@ namespace mRemoteNG.UI.Controls.ConnectionTree
             }
         }
 
-        private void OnAfterLabelEdit(object sender, LabelEditEventArgs e)
+        private void OnCellEditFinishing(object sender, CellEditEventArgs e)
         {
             if (!_nodeInEditMode)
                 return;
 
+            // e.Cancel is set when the user pressed Escape. Otherwise the name is applied here,
+            // through RenameNode, instead of ObjectListView writing it into the model directly.
+            string newName = e.Cancel ? null : e.NewValue as string;
+            e.Cancel = true;
+
             try
             {
-                _contextMenu.EnableShortcutKeys();
-                ConnectionTreeModel.RenameNode(SelectedNode, e.Label);
+                _contextMenu?.EnableShortcutKeys();
+                if (e.RowObject is ConnectionInfo connectionInfo)
+                {
+                    ConnectionTreeModel.RenameNode(connectionInfo, newName);
+                    RefreshObject(connectionInfo);
+                }
                 _nodeInEditMode = false;
                 _allowEdit = false;
                 _slowClickRenameHandler?.Cancel();
@@ -902,7 +1034,7 @@ namespace mRemoteNG.UI.Controls.ConnectionTree
             }
             catch (Exception ex)
             {
-                Runtime.MessageCollector.AddExceptionStackTrace("tvConnections_AfterLabelEdit (UI.Window.ConnectionTreeWindow) failed", ex);
+                Runtime.MessageCollector.AddExceptionStackTrace("ConnectionTree.OnCellEditFinishing failed", ex);
             }
         }
 

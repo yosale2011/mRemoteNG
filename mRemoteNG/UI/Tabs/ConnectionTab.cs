@@ -78,8 +78,46 @@ namespace mRemoteNG.UI.Tabs
                 return;
             }
 
-            DockAreas = _dockAreasBeforeMinimize.Value;
-            _dockAreasBeforeMinimize = null;
+            // Assigning DockAreas throws if the new value does not allow the current
+            // DockState (e.g. restoring areas without DockBottom while still auto-hidden
+            // at the bottom). Defer the restore until the state is compatible again.
+            if (!DockAreasAllowState(_dockAreasBeforeMinimize.Value, DockState))
+            {
+                return;
+            }
+
+            try
+            {
+                DockAreas = _dockAreasBeforeMinimize.Value;
+            }
+            catch (InvalidOperationException ex)
+            {
+                // The docking library re-validates the value against the live DockState and
+                // can still reject it if the state changed between the check above and the
+                // assignment. Swallowing keeps tab close/restore from surfacing an unhandled
+                // exception; the original DockAreas simply remain in effect.
+                Runtime.MessageCollector?.AddExceptionMessage(
+                    "RestoreDockAreasAfterMinimize (UI.Tabs.ConnectionTab) failed to restore DockAreas",
+                    ex);
+            }
+            finally
+            {
+                _dockAreasBeforeMinimize = null;
+            }
+        }
+
+        private static bool DockAreasAllowState(DockAreas dockAreas, DockState dockState)
+        {
+            return dockState switch
+            {
+                DockState.Float => (dockAreas & DockAreas.Float) == DockAreas.Float,
+                DockState.DockLeft or DockState.DockLeftAutoHide => (dockAreas & DockAreas.DockLeft) == DockAreas.DockLeft,
+                DockState.DockRight or DockState.DockRightAutoHide => (dockAreas & DockAreas.DockRight) == DockAreas.DockRight,
+                DockState.DockTop or DockState.DockTopAutoHide => (dockAreas & DockAreas.DockTop) == DockAreas.DockTop,
+                DockState.DockBottom or DockState.DockBottomAutoHide => (dockAreas & DockAreas.DockBottom) == DockAreas.DockBottom,
+                DockState.Document => (dockAreas & DockAreas.Document) == DockAreas.Document,
+                _ => true,
+            };
         }
 
         private void ConnectionTab_GotFocus(object sender, EventArgs e)
@@ -114,18 +152,18 @@ namespace mRemoteNG.UI.Tabs
                         }
                         else
                         {
-                            ((InterfaceControl)Tag)?.Protocol.Close();
+                            CloseAttachedProtocol();
                         }
                     }
                     else
                     {
                         // close without the confirmation prompt...
-                        ((InterfaceControl)Tag)?.Protocol.Close();
+                        CloseAttachedProtocol();
                     }
                 }
                 else
                 {
-                    ((InterfaceControl)Tag)?.Protocol.Close();
+                    CloseAttachedProtocol();
                 }
             }
 
@@ -152,7 +190,18 @@ namespace mRemoteNG.UI.Tabs
         }
 
 
-        #region HelperFunctions  
+        #region HelperFunctions
+
+        /// <summary>
+        /// Closes the protocol attached to this tab, if one is. <see cref="ConnectionWindow.AddConnectionTab"/>
+        /// stores the <see cref="ConnectionInfo"/> in <see cref="Control.Tag"/>; the protocol replaces it with
+        /// its <see cref="InterfaceControl"/> when it initializes and clears it when it closes. A tab closed
+        /// before the protocol attached has nothing to close.
+        /// </summary>
+        private void CloseAttachedProtocol()
+        {
+            (Tag as InterfaceControl)?.Protocol.Close();
+        }
 
         public void RefreshInterfaceController()
         {

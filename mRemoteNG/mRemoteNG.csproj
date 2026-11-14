@@ -8,7 +8,7 @@
   </PropertyGroup>
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
+    <TargetFramework>net11.0-windows10.0.26100.0</TargetFramework>
     <UseWindowsForms>true</UseWindowsForms>
     <TransformOnBuild>true</TransformOnBuild>
     <TransformOutOfDateOnly>false</TransformOutOfDateOnly>
@@ -137,18 +137,27 @@
     <PackageReference Include="Google.Protobuf" />
     <PackageReference Include="log4net" />
     <PackageReference Include="Microsoft-WindowsAPICodePack-Shell" />
+    <PackageReference Include="Microsoft.Bcl.AsyncInterfaces" />
+    <PackageReference Include="Microsoft.Bcl.Cryptography" />
     <PackageReference Include="Microsoft.Data.SqlClient" />
     <PackageReference Include="Microsoft.Data.Sqlite" />
     <PackageReference Include="Microsoft.Extensions.Configuration.UserSecrets" />
     <PackageReference Include="Microsoft.Web.WebView2" />
     <PackageReference Include="Microsoft.Xaml.Behaviors.Wpf" />
     <PackageReference Include="MySql.Data" />
+    <PackageReference Include="OpenTelemetry.PersistentStorage.FileSystem" />
+    <PackageReference Include="SQLite" />
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" />
     <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" />
+    <PackageReference Include="SQLitePCLRaw.provider.e_sqlite3" />
     <PackageReference Include="System.Data.Odbc" />
     <PackageReference Include="Newtonsoft.Json" />
     <PackageReference Include="SSH.NET" />
+    <PackageReference Include="System.IdentityModel.Tokens.Jwt" />
     <PackageReference Include="System.Management" />
+    <PackageReference Include="System.Threading.RateLimiting" />
     <PackageReference Include="VncSharpCore" />
+    <PackageReference Include="zxcvbn-core" />
   </ItemGroup>
   <ItemGroup>
     <Compile Update="Language\Language.Designer.cs">
@@ -555,10 +564,10 @@
     </EmbeddedResource>
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Update="chromiumembeddedframework.runtime.win-x64" Version="152.0.10" />
+    <PackageReference Update="chromiumembeddedframework.runtime.win-x64" Version="156.0.15" />
   </ItemGroup>
   <ItemGroup Condition="'$(Platform)'=='arm64'">
-    <PackageReference Update="chromiumembeddedframework.runtime.win-arm64" Version="152.0.10" />
+    <PackageReference Update="chromiumembeddedframework.runtime.win-arm64" Version="156.0.15" />
   </ItemGroup>
   <ItemGroup>
     <Service Include="{508349b6-6b84-4df5-91f0-309beebad82d}" />
@@ -581,6 +590,29 @@
     <ItemGroup>
       <ReferenceCopyLocalPaths Condition=" '%(ReferenceCopyLocalPaths.NuGetPackageId)' != '' and '%(ReferenceCopyLocalPaths.Filename)' != 'e_sqlite3' and '%(ReferenceCopyLocalPaths.Filename)' != 'libe_sqlite3' and !$([System.String]::Copy('%(ReferenceCopyLocalPaths.FullPath)').Contains('\runtimes\')) " Update="%(ReferenceCopyLocalPaths)" DestinationSubDirectory="Assemblies\" />
       <ReferenceCopyLocalPaths Condition=" '%(ReferenceCopyLocalPaths.Filename)' == 'mRp.Contracts' " Update="%(ReferenceCopyLocalPaths)" DestinationSubDirectory="Assemblies\" />
+    </ItemGroup>
+  </Target>
+  <!--
+    The AfterTargets="ResolveReferences" rewrite above only reroutes ReferenceCopyLocalPaths
+    for the build output. During publish (self-contained in particular) files flow through
+    ResolvedFileToPublish, whose RelativePath metadata is what decides the layout under
+    $(PublishDir). Mirror the same rules on ResolvedFileToPublish so NuGet DLLs end up in
+    Assemblies\ and plugin assemblies (mRp.* other than mRp.Contracts) end up in Plugins\
+    in the self-contained publish, matching the framework-dependent build.
+  -->
+  <Target Name="RelocatePublishedPackageAssembliesToSubFolder" AfterTargets="ComputeResolvedFilesToPublishList" BeforeTargets="CopyFilesToPublishDirectory">
+    <ItemGroup>
+      <!-- Reroute top-level third-party managed NuGet DLLs into Assemblies\. Native runtime
+           assets stay at the publish root, as required by self-contained publishing. Items whose RelativePath
+           already contains a path separator (e.g. runtimes\..., culture satellite folders)
+           are left untouched so the SQL Client SNI layout and satellite assemblies remain
+           intact. The .NET shared-framework / runtime packs (Microsoft.NETCore.App.*,
+           Microsoft.WindowsDesktop.App.*, Microsoft.AspNetCore.App.*) must stay next to the
+           apphost in a self-contained publish so coreclr.dll / hostfxr.dll resolve, so they
+           are excluded from the move. -->
+      <ResolvedFileToPublish Condition=" '%(ResolvedFileToPublish.NuGetPackageId)' != '' and '%(ResolvedFileToPublish.Extension)' == '.dll' and '%(ResolvedFileToPublish.AssetType)' != 'native' and '%(ResolvedFileToPublish.Filename)' != 'e_sqlite3' and '%(ResolvedFileToPublish.Filename)' != 'libe_sqlite3' and !$([System.String]::Copy('%(ResolvedFileToPublish.NuGetPackageId)').StartsWith('Microsoft.NETCore.App')) and !$([System.String]::Copy('%(ResolvedFileToPublish.NuGetPackageId)').StartsWith('Microsoft.WindowsDesktop.App')) and !$([System.String]::Copy('%(ResolvedFileToPublish.NuGetPackageId)').StartsWith('Microsoft.AspNetCore.App')) and !$([System.String]::Copy('%(ResolvedFileToPublish.RelativePath)').Contains('\')) and !$([System.String]::Copy('%(ResolvedFileToPublish.RelativePath)').Contains('/')) " Update="%(ResolvedFileToPublish.Identity)" RelativePath="Assemblies\%(ResolvedFileToPublish.RelativePath)" />
+      <ResolvedFileToPublish Condition=" '%(ResolvedFileToPublish.Filename)' == 'mRp.Contracts' and '%(ResolvedFileToPublish.Extension)' == '.dll' " Update="%(ResolvedFileToPublish.Identity)" RelativePath="Assemblies\%(ResolvedFileToPublish.Filename)%(ResolvedFileToPublish.Extension)" />
+      <ResolvedFileToPublish Condition=" $([System.String]::Copy('%(ResolvedFileToPublish.Filename)').StartsWith('mRp.')) and '%(ResolvedFileToPublish.Filename)' != 'mRp.Contracts' and '%(ResolvedFileToPublish.Extension)' == '.dll' " Update="%(ResolvedFileToPublish.Identity)" RelativePath="Plugins\%(ResolvedFileToPublish.Filename)%(ResolvedFileToPublish.Extension)" />
     </ItemGroup>
   </Target>
   <PropertyGroup>
@@ -661,31 +693,25 @@
       <Culture>zh-TW</Culture>
     </AppSatelliteResourceAssemblies>
   </ItemGroup>
-  <Target Name="RelocateSatelliteAssembliesToLanguagesFolder" AfterTargets="Build">
+  <Target Name="RelocateBuiltSatelliteAssembliesToLanguagesFolder" AfterTargets="Build">
     <ItemGroup>
       <BuiltSatelliteResourceAssemblies Include="@(AppSatelliteResourceAssemblies->'$(OutDir)%(Culture)\mRemoteNG.resources.dll')" />
-      <PublishedSatelliteResourceAssemblies Include="@(AppSatelliteResourceAssemblies->'$(PublishDir)%(Culture)\mRemoteNG.resources.dll')"
-                                          Condition="'$(PublishDir)' != '' and Exists('$(PublishDir)')" />
       <BuiltSatelliteCultureDirectories Include="@(AppSatelliteResourceAssemblies->'$(OutDir)%(Culture)')" />
-      <PublishedSatelliteCultureDirectories Include="@(AppSatelliteResourceAssemblies->'$(PublishDir)%(Culture)')"
-                                          Condition="'$(PublishDir)' != '' and Exists('$(PublishDir)')" />
     </ItemGroup>
 
-    <Copy SourceFiles="@(BuiltSatelliteResourceAssemblies)"
-          DestinationFiles="@(AppSatelliteResourceAssemblies->'$(OutDir)Languages\%(Culture)\mRemoteNG.resources.dll')"
-          SkipUnchangedFiles="true" />
-
-    <Copy SourceFiles="@(PublishedSatelliteResourceAssemblies)"
-          DestinationFiles="@(AppSatelliteResourceAssemblies->'$(PublishDir)Languages\%(Culture)\mRemoteNG.resources.dll')"
-          SkipUnchangedFiles="true"
-          Condition="'$(PublishDir)' != '' and Exists('$(PublishDir)')" />
-
+    <Copy SourceFiles="@(BuiltSatelliteResourceAssemblies)" DestinationFiles="@(AppSatelliteResourceAssemblies->'$(OutDir)Languages\%(Culture)\mRemoteNG.resources.dll')" SkipUnchangedFiles="true" />
     <Delete Files="@(BuiltSatelliteResourceAssemblies)" />
-    <Delete Files="@(PublishedSatelliteResourceAssemblies)"
-            Condition="'$(PublishDir)' != '' and Exists('$(PublishDir)')" />
     <RemoveDir Directories="@(BuiltSatelliteCultureDirectories)" />
-    <RemoveDir Directories="@(PublishedSatelliteCultureDirectories)"
-               Condition="'$(PublishDir)' != '' and Exists('$(PublishDir)')" />
+  </Target>
+  <Target Name="RelocatePublishedSatelliteAssembliesToLanguagesFolder" AfterTargets="Publish">
+    <ItemGroup>
+      <PublishedSatelliteResourceAssemblies Include="@(AppSatelliteResourceAssemblies->'$(PublishDir)%(Culture)\mRemoteNG.resources.dll')" />
+      <PublishedSatelliteCultureDirectories Include="@(AppSatelliteResourceAssemblies->'$(PublishDir)%(Culture)')" />
+    </ItemGroup>
+
+    <Copy SourceFiles="@(PublishedSatelliteResourceAssemblies)" DestinationFiles="@(AppSatelliteResourceAssemblies->'$(PublishDir)Languages\%(Culture)\mRemoteNG.resources.dll')" SkipUnchangedFiles="true" />
+    <Delete Files="@(PublishedSatelliteResourceAssemblies)" />
+    <RemoveDir Directories="@(PublishedSatelliteCultureDirectories)" />
   </Target>
   <Target Name="PublishAfterBuild" AfterTargets="Build" Condition="'$(Configuration)' == 'Release Self-Contained'">
     <Message Text="Publishing self-contained application for $(Platform)..." Importance="high" />
@@ -697,6 +723,5 @@
     <RemoveDir Directories="$(TempBuildDir)" />
     <RemoveDir Directories="$(ProjectDir)bin\x64\Release Self-Contained" />
   </Target>
-  <Import Project="$(MSBuildExtensionsPath)\Microsoft\VisualStudio\v18.0\TextTemplating\Microsoft.TextTemplating.targets"
-          Condition="Exists('$(MSBuildExtensionsPath)\Microsoft\VisualStudio\v18.0\TextTemplating\Microsoft.TextTemplating.targets')" />
+  <Import Project="$(MSBuildExtensionsPath)\Microsoft\VisualStudio\v18.0\TextTemplating\Microsoft.TextTemplating.targets" Condition="Exists('$(MSBuildExtensionsPath)\Microsoft\VisualStudio\v18.0\TextTemplating\Microsoft.TextTemplating.targets')" />
 </Project>

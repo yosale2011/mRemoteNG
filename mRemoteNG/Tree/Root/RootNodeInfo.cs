@@ -10,10 +10,20 @@ namespace mRemoteNG.Tree.Root
 {
     [SupportedOSPlatform("windows")]
     [DefaultProperty("Name")]
-    public class RootNodeInfo(RootNodeType rootType, string uniqueId) : ContainerInfo(uniqueId)
+    public class RootNodeInfo : ContainerInfo
     {
-        private string _name = Language.Connections;
+        private string _name;
         private string _customPassword = "";
+        private bool _password;
+
+        public RootNodeInfo(RootNodeType rootType, string uniqueId)
+            : base(uniqueId)
+        {
+            // Set here, after the base constructor: its defaults name the new container "New Folder"
+            // through the overridden Name, and a field initializer would run before that.
+            _name = Language.Connections;
+            Type = rootType;
+        }
 
         public RootNodeInfo(RootNodeType rootType)
             : this(rootType, Guid.NewGuid().ToString())
@@ -30,7 +40,7 @@ namespace mRemoteNG.Tree.Root
         public override string Name
         {
             get => _name;
-            set => _name = value;
+            set => SetField(ref _name, value, nameof(Name));
         }
         
         [LocalizedAttributes.LocalizedCategory(nameof(Language.Miscellaneous)),
@@ -38,7 +48,11 @@ namespace mRemoteNG.Tree.Root
          LocalizedAttributes.LocalizedDisplayName(nameof(Language.PasswordProtect)),
          LocalizedAttributes.LocalizedDescription(nameof(Language.PropertyDescriptionPasswordProtect)),
          TypeConverter(typeof(MiscTools.YesNoTypeConverter))]
-        public new bool Password { get; set; }
+        public new bool Password
+        {
+            get => _password;
+            set => SetField(ref _password, value, nameof(Password));
+        }
 
         [Browsable(false)]
         public string PasswordString
@@ -46,14 +60,14 @@ namespace mRemoteNG.Tree.Root
             get => (Password && !string.IsNullOrEmpty(_customPassword)) ? _customPassword : DefaultPassword;
             set
             {
-                _customPassword = value;
+                SetField(ref _customPassword, value, nameof(PasswordString));
                 Password = !string.IsNullOrEmpty(value) && _customPassword != DefaultPassword;
             }
         }
 
         [Browsable(false)] public string DefaultPassword { get; } = "mR3m"; //TODO move password away from code to settings
 
-        [Browsable(false)] public RootNodeType Type { get; set; } = rootType;
+        [Browsable(false)] public RootNodeType Type { get; set; }
 
         public override TreeNodeType GetTreeNodeType()
         {

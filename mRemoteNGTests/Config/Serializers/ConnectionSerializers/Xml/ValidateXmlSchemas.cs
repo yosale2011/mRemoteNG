@@ -1,4 +1,5 @@
 ﻿using mRemoteNG.Connection;
+using mRemoteNG.Container;
 using mRemoteNG.Security;
 using mRemoteNG.Security.SymmetricEncryption;
 using mRemoteNG.Tree;
@@ -26,11 +27,11 @@ public class ValidateXmlSchemas
     {
         _connectionTreeModel = new ConnectionTreeModel();
         var root = new RootNodeInfo(RootNodeType.Connection);
-        root.AddChild(new ConnectionInfo());
+        root.AddChild(new ConnectionInfo { Inheritance = { TerminalBackend = true } });
         _connectionTreeModel.AddRootNode(root);
 
         _cryptographyProvider = new AeadCryptographyProvider();
-        var connectionNodeSerializer = new XmlConnectionNodeSerializer28(
+        var connectionNodeSerializer = new XmlConnectionNodeSerializer29(
             _cryptographyProvider,
             _connectionTreeModel.RootNodes.OfType<RootNodeInfo>().First().PasswordString.ConvertToSecureString(),
             new SaveFilter());
@@ -47,8 +48,45 @@ public class ValidateXmlSchemas
     [Test]
     public void ValidateSchema()
     {
+        AssertSerializedXmlMatchesSchema(_serializer.Serialize(_connectionTreeModel));
+    }
+
+    [Test]
+    public void ValidateSchemaWithFolderAndAllInheritanceEnabled()
+    {
+        // Folders and inheritance flags are only written conditionally, so the
+        // default test data never exercises them against the schema
+        var root = new RootNodeInfo(RootNodeType.Connection);
+        var folder = new ContainerInfo { Name = "folder", IsRootGroup = true };
+        var connection = new ConnectionInfo { Name = "con" };
+        connection.Inheritance.TurnOnInheritanceCompletely();
+        root.AddChild(folder);
+        folder.AddChild(connection);
+        var model = new ConnectionTreeModel();
+        model.AddRootNode(root);
+
+        AssertSerializedXmlMatchesSchema(_serializer.Serialize(model));
+    }
+
+    [Test]
+    public void ValidateSchemaWithDpapiProtection()
+    {
+        // DPAPI-protected files write the extra, optional KeyProtection="Dpapi" attribute on the
+        // root Connections element — confirm the schema actually declares it (regression test for
+        // the PR review finding: DPAPI-saved files failed their own advertised schema validation).
+        var dpapiCryptographyProvider = new DpapiCryptographyProvider();
+        var connectionNodeSerializer = new XmlConnectionNodeSerializer29(
+            dpapiCryptographyProvider,
+            _connectionTreeModel.RootNodes.OfType<RootNodeInfo>().First().PasswordString.ConvertToSecureString(),
+            new SaveFilter());
+        var dpapiSerializer = new XmlConnectionsSerializer(dpapiCryptographyProvider, connectionNodeSerializer);
+
+        AssertSerializedXmlMatchesSchema(dpapiSerializer.Serialize(_connectionTreeModel));
+    }
+
+    private void AssertSerializedXmlMatchesSchema(string xml)
+    {
         var sb = new StringBuilder();
-        var xml = _serializer.Serialize(_connectionTreeModel);
         var schemaFileName = $"mremoteng_confcons_v{_serializer.Version.Major}_{_serializer.Version.Minor}.xsd";
         var schemaFile = GetTargetPath(schemaFileName);
         _xmlReaderSettings.Schemas.Add("http://mremoteng.org", schemaFile);

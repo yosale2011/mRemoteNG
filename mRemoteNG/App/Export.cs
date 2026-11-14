@@ -25,7 +25,7 @@ namespace mRemoteNG.App
         {
             try
             {
-                SaveFilter saveFilter = new();
+                SaveFilter saveFilter = new SaveFilter().RestrictForExport();
 
                 using (FrmExport exportForm = new())
                 {
@@ -85,9 +85,9 @@ namespace mRemoteNG.App
                 switch (saveFormat)
                 {
                     case SaveFormat.mRXML:
-                        ICryptographyProvider cryptographyProvider = new CryptoProviderFactoryFromSettings().Build();
+                        ICryptographyProvider cryptographyProvider = new ConnectionsFileCryptoProviderFactory().Build();
                         RootNodeInfo? rootNode = exportTarget.GetRootParent() as RootNodeInfo;
-                        XmlConnectionNodeSerializer28 connectionNodeSerializer = new(
+                        XmlConnectionNodeSerializer29 connectionNodeSerializer = new(
                                                                                          cryptographyProvider,
                                                                                          rootNode?.PasswordString
                                                                                                  .ConvertToSecureString() ??

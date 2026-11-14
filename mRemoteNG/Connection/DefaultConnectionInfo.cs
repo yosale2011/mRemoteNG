@@ -1,8 +1,10 @@
 ﻿using System;
 using System.ComponentModel;
+using System.Linq;
 using System.Configuration;
 using System.Runtime.Versioning;
 using mRemoteNG.App;
+using mRemoteNG.Connection.Protocol.RDP;
 
 
 namespace mRemoteNG.Connection
@@ -24,7 +26,7 @@ namespace mRemoteNG.Connection
             if (propertyNameMutator == null)
                 propertyNameMutator = a => a;
 
-            System.Collections.Generic.IEnumerable<System.Reflection.PropertyInfo> connectionProperties = GetSerializableProperties();
+            System.Collections.Generic.IEnumerable<System.Reflection.PropertyInfo> connectionProperties = GetPropertiesWithADefault();
             foreach (System.Reflection.PropertyInfo property in connectionProperties)
             {
                 try
@@ -35,6 +37,12 @@ namespace mRemoteNG.Connection
                         throw new SettingsPropertyNotFoundException($"No property with name '{expectedPropertyName}' found.");
 
                     object valueFromSource = propertyFromSource.GetValue(sourceInstance, null);
+
+                    if (property.PropertyType == typeof(RDPDiskDrives))
+                    {
+                        property.SetValue(Instance, RdpDiskDrivesSetting.Parse(valueFromSource?.ToString()), null);
+                        continue;
+                    }
 
                     if (property.PropertyType.IsEnum)
                     {
@@ -51,12 +59,18 @@ namespace mRemoteNG.Connection
             }
         }
 
+        // A property that cannot be set, such as PluginProperties, has no default to load or save.
+        private System.Collections.Generic.IEnumerable<System.Reflection.PropertyInfo> GetPropertiesWithADefault()
+        {
+            return GetSerializableProperties().Where(property => property.CanWrite);
+        }
+
         public void SaveTo<TDestination>(TDestination destinationInstance, Func<string, string> propertyNameMutator = null)
         {
             if (propertyNameMutator == null)
                 propertyNameMutator = (a) => a;
 
-            System.Collections.Generic.IEnumerable<System.Reflection.PropertyInfo> connectionProperties = GetSerializableProperties();
+            System.Collections.Generic.IEnumerable<System.Reflection.PropertyInfo> connectionProperties = GetPropertiesWithADefault();
 
             foreach (System.Reflection.PropertyInfo property in connectionProperties)
             {

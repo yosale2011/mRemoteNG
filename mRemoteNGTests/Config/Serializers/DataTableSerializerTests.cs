@@ -1,4 +1,5 @@
 ﻿using System.Linq;
+using mRemoteNG.Connection.Protocol.Terminal;
 using System.Security;
 using mRemoteNG.Config.Serializers.ConnectionSerializers.Sql;
 using mRemoteNG.Connection;
@@ -121,6 +122,59 @@ public class DataTableSerializerTests
         Assert.That(dataTable.Rows.Count, Is.EqualTo(1));
     }
 
+    [Test]
+    public void TerminalBackendChangeIsSerialized()
+    {
+        var model = CreateConnectionTreeModel();
+        var connection = model.GetRecursiveChildList().OfType<ConnectionInfo>().First();
+        var sourceTable = _dataTableSerializer.Serialize(model);
+        connection.TerminalBackend = TerminalBackend.WindowsTerminal;
+
+        var serializer = new DataTableSerializer(_saveFilter, new LegacyRijndaelCryptographyProvider(), new SecureString());
+        serializer.SetSourceDataTable(sourceTable.Copy());
+        var updatedTable = serializer.Serialize(model);
+
+        Assert.That(updatedTable.Rows.Find(connection.ConstantID)["TerminalBackend"], Is.EqualTo(TerminalBackend.WindowsTerminal.ToString()));
+    }
+
+    [Test]
+    public void InheritedTerminalBackendChangeIsSerialized()
+    {
+        var model = CreateConnectionTreeModel();
+        var connection = model.GetRecursiveChildList().OfType<ConnectionInfo>().First();
+        _saveFilter.SaveInheritance = true;
+        connection.Inheritance.TerminalBackend = false;
+        var sourceTable = _dataTableSerializer.Serialize(model);
+        connection.Inheritance.TerminalBackend = true;
+
+        var serializer = new DataTableSerializer(_saveFilter, new LegacyRijndaelCryptographyProvider(), new SecureString());
+        serializer.SetSourceDataTable(sourceTable.Copy());
+        var updatedTable = serializer.Serialize(model);
+
+        Assert.That(updatedTable.Rows.Find(connection.ConstantID)["InheritTerminalBackend"], Is.True);
+    }
+
+
+    // A real tblCons never has these columns: no CREATE TABLE or version upgrader creates
+    // them, for either provider. The serializer only saw them before because an empty table
+    // makes it build its own schema; as soon as the database has a row, the real schema comes
+    // back and every save threw, so SQL users lost every edit after the first.
+    [TestCase("EnvironmentTags")]
+    [TestCase("InheritEnvironmentTags")]
+    [TestCase("RDGatewayExternalCredentialProvider")]
+    [TestCase("RDGatewayUserViaAPI")]
+    public void SerializingSucceedsWhenTheDatabaseLacksAColumn(string missingColumn)
+    {
+        var model = CreateConnectionTreeModel();
+        _saveFilter.SaveInheritance = true;
+        var sourceTable = _dataTableSerializer.Serialize(model).Copy();
+        sourceTable.Columns.Remove(missingColumn);
+
+        var serializer = new DataTableSerializer(_saveFilter, new LegacyRijndaelCryptographyProvider(), new SecureString());
+        serializer.SetSourceDataTable(sourceTable);
+
+        Assert.That(() => serializer.Serialize(model), Throws.Nothing);
+    }
 
     private ConnectionTreeModel CreateConnectionTreeModel()
     {

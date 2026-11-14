@@ -1,10 +1,14 @@
 using System;
 using System.Drawing;
 using System.Reflection;
+using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Windows.Forms;
+using System.Linq;
+using mRemoteNG.Connection;
 using mRemoteNG.Themes;
 using mRemoteNG.UI.Tabs;
+using mRemoteNG.UI.Window;
 using NUnit.Framework;
 using WeifenLuo.WinFormsUI.Docking;
 using WeifenLuo.WinFormsUI.ThemeVS2015;
@@ -29,6 +33,19 @@ namespace mRemoteNGTests.UI.Tabs
 
             var thread = new Thread(() =>
             {
+                // An exception thrown inside a window procedure must fail the test. Without a
+                // handler WinForms shows a ThreadExceptionDialog that nobody answers; when the
+                // timeout below unwinds it, WinForms exits the application, closes every open
+                // form, and a second exception from there crashes the test host. The handler is
+                // per thread, so it does not affect other fixtures. ThrowException mode is no
+                // alternative: on .NET the exception cannot cross the native window procedure
+                // frame and the runtime fails fast.
+                Application.ThreadException += (_, args) =>
+                {
+                    caught ??= args.Exception;
+                    Application.ExitThread();
+                };
+
                 pump = new Form
                 {
                     ShowInTaskbar = false,
@@ -47,7 +64,9 @@ namespace mRemoteNGTests.UI.Tabs
                     }
                     catch (Exception ex)
                     {
-                        caught = ex;
+                        // The first exception is the one to report; a window procedure may already
+                        // have recorded one through the ThreadException handler above.
+                        caught ??= ex;
                     }
                     finally
                     {
@@ -55,7 +74,17 @@ namespace mRemoteNGTests.UI.Tabs
                     }
                 }));
 
-                Application.Run(new ApplicationContext());
+                try
+                {
+                    Application.Run(new ApplicationContext());
+                }
+                catch (Exception ex)
+                {
+                    // Thrown by the message loop itself rather than by testAction; without this it
+                    // would take the thread down unreported and leave the test to time out.
+                    caught ??= ex;
+                }
+
                 pump.Dispose();
             })
             {
@@ -86,7 +115,7 @@ namespace mRemoteNGTests.UI.Tabs
             }
 
             if (caught != null)
-                throw caught;
+                ExceptionDispatchInfo.Capture(caught).Throw(); // Keeps the stack trace of the pump thread.
         }
 
         [Test]
@@ -286,6 +315,272 @@ namespace mRemoteNGTests.UI.Tabs
         });
 
         [Test]
+        public void ClosingAConnectionTabWhileMinimized_DoesNotThrow() => RunWithMessagePump(() =>
+        {
+            using var hostForm = new Form
+            {
+                Width = 800,
+                Height = 600,
+                ShowInTaskbar = false,
+                StartPosition = FormStartPosition.Manual,
+                Location = new Point(-10000, -10000)
+            };
+
+            var dockPanel = new DockPanel
+            {
+                Dock = DockStyle.Fill,
+                DocumentStyle = DocumentStyle.DockingWindow,
+                Theme = new VS2015LightTheme()
+            };
+
+            dockPanel.Theme.Extender.DockPaneStripFactory = new MremoteDockPaneStripFactory();
+
+            hostForm.Controls.Add(dockPanel);
+            hostForm.Show();
+
+            var connectionTab = new ConnectionTab
+            {
+                Text = "Doc1",
+                TabText = "Doc1",
+                DockAreas = DockAreas.Document | DockAreas.Float,
+                silentClose = true,
+                protocolClose = true
+            };
+
+            connectionTab.Show(dockPanel, DockState.Document);
+            Application.DoEvents();
+
+            connectionTab.MinimizeToBottomAutoHide();
+            Application.DoEvents();
+
+            Assert.That(connectionTab.DockState, Is.EqualTo(DockState.DockBottomAutoHide), "ConnectionTab should be auto-hidden at the bottom before closing");
+
+            Assert.DoesNotThrow(() =>
+            {
+                connectionTab.Close();
+                Application.DoEvents();
+            }, "Closing a connection tab while minimized to bottom auto-hide must not throw");
+        });
+
+        [Test]
+        public void ClosingAConnectionTabBeforeItsProtocolAttaches_DoesNotThrow() => RunWithMessagePump(() =>
+        {
+            using var hostForm = new Form
+            {
+                Width = 800,
+                Height = 600,
+                ShowInTaskbar = false,
+                StartPosition = FormStartPosition.Manual,
+                Location = new Point(-10000, -10000)
+            };
+
+            var dockPanel = new DockPanel
+            {
+                Dock = DockStyle.Fill,
+                DocumentStyle = DocumentStyle.DockingWindow,
+                Theme = new VS2015LightTheme()
+            };
+
+            dockPanel.Theme.Extender.DockPaneStripFactory = new MremoteDockPaneStripFactory();
+
+            hostForm.Controls.Add(dockPanel);
+            hostForm.Show();
+
+            using var panelHost = new DockContent();
+            using var connectionWindow = new ConnectionWindow(panelHost);
+            connectionWindow.Show(dockPanel, DockState.Document);
+
+            // AddConnectionTab stores the ConnectionInfo in Tag; the protocol replaces it with its
+            // InterfaceControl only once it initializes. The tab can be closed before that happens,
+            // e.g. when the protocol could not be created or the user closes it while it connects.
+            ConnectionTab connectionTab = connectionWindow.AddConnectionTab(new ConnectionInfo { Name = "Not yet connected" });
+            connectionTab.silentClose = true;
+            Application.DoEvents();
+
+            Assert.DoesNotThrow(() =>
+            {
+                connectionTab.Close();
+                Application.DoEvents();
+            }, "Closing a connection tab before its protocol attached must not throw");
+        });
+
+        [Test]
+        public void RestoringDockAreasWhileStillMinimized_DoesNotThrow() => RunWithMessagePump(() =>
+        {
+            using var hostForm = new Form
+            {
+                Width = 800,
+                Height = 600,
+                ShowInTaskbar = false,
+                StartPosition = FormStartPosition.Manual,
+                Location = new Point(-10000, -10000)
+            };
+
+            var dockPanel = new DockPanel
+            {
+                Dock = DockStyle.Fill,
+                DocumentStyle = DocumentStyle.DockingWindow,
+                Theme = new VS2015LightTheme()
+            };
+
+            dockPanel.Theme.Extender.DockPaneStripFactory = new MremoteDockPaneStripFactory();
+
+            hostForm.Controls.Add(dockPanel);
+            hostForm.Show();
+
+            var connectionTab = new ConnectionTab
+            {
+                Text = "Doc1",
+                TabText = "Doc1",
+                DockAreas = DockAreas.Document | DockAreas.Float
+            };
+
+            connectionTab.Show(dockPanel, DockState.Document);
+            Application.DoEvents();
+
+            connectionTab.MinimizeToBottomAutoHide();
+            Application.DoEvents();
+
+            Assert.That(connectionTab.DockState, Is.EqualTo(DockState.DockBottomAutoHide), "ConnectionTab should be auto-hidden at the bottom");
+
+            // Reproduces the crash scenario from the stack trace: forcing a restore of the
+            // original DockAreas (which lack DockBottom) while still auto-hidden at the bottom
+            // must not surface the "DockAreas conflicts with current DockState" exception.
+            MethodInfo restoreMethod = typeof(ConnectionTab).GetMethod(
+                "RestoreDockAreasAfterMinimize",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.That(restoreMethod, Is.Not.Null, "Could not find RestoreDockAreasAfterMinimize method");
+
+            Assert.DoesNotThrow(() =>
+            {
+                restoreMethod.Invoke(connectionTab, null);
+                Application.DoEvents();
+            }, "Restoring DockAreas while still minimized must not throw");
+
+            // Closing without it asks for confirmation, and a dialog nobody answers holds the test.
+            connectionTab.protocolClose = true;
+            connectionTab.Close();
+            Application.DoEvents();
+        });
+
+        [Test]
+        public void ReplacingAConnectionTab_CanKeepItsOriginalDocumentIndex() => RunWithMessagePump(() =>
+        {
+            using var hostForm = new Form
+            {
+                Width = 800,
+                Height = 600,
+                ShowInTaskbar = false,
+                StartPosition = FormStartPosition.Manual,
+                Location = new Point(-10000, -10000)
+            };
+
+            var dockPanel = new DockPanel
+            {
+                Dock = DockStyle.Fill,
+                DocumentStyle = DocumentStyle.DockingWindow,
+                Theme = new VS2015LightTheme()
+            };
+
+            dockPanel.Theme.Extender.DockPaneStripFactory = new MremoteDockPaneStripFactory();
+
+            hostForm.Controls.Add(dockPanel);
+            hostForm.Show();
+
+            using var panelHost = new DockContent();
+            using var connectionWindow = new ConnectionWindow(panelHost);
+            connectionWindow.Show(dockPanel, DockState.Document);
+
+            ConnectionTab doc1 = connectionWindow.AddConnectionTab(new ConnectionInfo { Name = "Doc1" });
+            ConnectionTab doc2 = connectionWindow.AddConnectionTab(new ConnectionInfo { Name = "Doc2" });
+            ConnectionTab doc3 = connectionWindow.AddConnectionTab(new ConnectionInfo { Name = "Doc3" });
+
+            Application.DoEvents();
+
+            DockPane targetPane = doc2.Pane;
+            int targetIndex = targetPane.DisplayingContents.IndexOf(doc2);
+
+            doc2.protocolClose = true;
+            doc2.Close();
+            Application.DoEvents();
+
+            ConnectionTab replacement = connectionWindow.AddConnectionTab(new ConnectionInfo { Name = "Doc2" }, targetPane, targetIndex);
+            Application.DoEvents();
+
+            // The order of the tabs in the pane; DocumentsToArray lists documents in the order they were added.
+            string[] tabOrder = targetPane.Contents
+                .OfType<ConnectionTab>()
+                .Select(tab => tab.TabText)
+                .ToArray();
+
+            Assert.That(replacement.Pane, Is.SameAs(targetPane), "Replacement tab should remain in the original pane");
+            Assert.That(tabOrder, Is.EqualTo(new[] { "Doc1", "Doc2", "Doc3" }), "Replacement tab should return to the original tab order");
+        });
+
+        [Test]
+        public void ReplacingTheOnlyTabInAFloatingPane_CanKeepItsOriginalPane() => RunWithMessagePump(() =>
+        {
+            using var hostForm = new Form
+            {
+                Width = 800,
+                Height = 600,
+                ShowInTaskbar = false,
+                StartPosition = FormStartPosition.Manual,
+                Location = new Point(-10000, -10000)
+            };
+
+            var dockPanel = new DockPanel
+            {
+                Dock = DockStyle.Fill,
+                DocumentStyle = DocumentStyle.DockingWindow,
+                Theme = new VS2015LightTheme()
+            };
+
+            dockPanel.Theme.Extender.DockPaneStripFactory = new MremoteDockPaneStripFactory();
+
+            hostForm.Controls.Add(dockPanel);
+            hostForm.Show();
+
+            using var panelHost = new DockContent();
+            using var connectionWindow = new ConnectionWindow(panelHost);
+            connectionWindow.Show(dockPanel, DockState.Document);
+
+            ConnectionTab doc1 = connectionWindow.AddConnectionTab(new ConnectionInfo { Name = "Doc1" });
+            ConnectionTab doc2 = connectionWindow.AddConnectionTab(new ConnectionInfo { Name = "Doc2" });
+
+            doc2.Show(connectionWindow.connDock, DockState.Float);
+            Application.DoEvents();
+
+            DockPane targetPane = doc2.Pane;
+            Assert.That(doc2.DockState, Is.EqualTo(DockState.Float), "Doc2 should be in a floating pane");
+            Assert.That(targetPane.DisplayingContents.Count, Is.EqualTo(1), "Doc2 should be the only tab in its pane");
+
+            var reconnectPlacement = connectionWindow.PrepareReconnectPlacement(doc2);
+            Application.DoEvents();
+
+            Assert.That(reconnectPlacement.targetPanePlaceholder, Is.Not.Null, "Reconnect placement should keep the floating pane alive");
+            DockContent placeholder = reconnectPlacement.targetPanePlaceholder!;
+            Assert.That(placeholder.Pane, Is.SameAs(targetPane), "Placeholder should be added to the original pane");
+
+            doc2.protocolClose = true;
+            doc2.Close();
+            Application.DoEvents();
+
+            Assert.That(targetPane.DockPanel, Is.SameAs(connectionWindow.connDock), "Floating pane should remain attached while the replacement is opened");
+
+            ConnectionTab replacement = connectionWindow.AddConnectionTab(new ConnectionInfo { Name = "Doc2" }, reconnectPlacement.targetPane, reconnectPlacement.targetContentIndex);
+            // Disposing the connection window closes its floating window, which closes the tabs it
+            // holds. Closing without it asks for confirmation, and a dialog nobody answers holds the test.
+            replacement.protocolClose = true;
+            placeholder.Close();
+            Application.DoEvents();
+
+            Assert.That(replacement.Pane, Is.SameAs(targetPane), "Replacement tab should remain in the original floating pane");
+            Assert.That(replacement.DockState, Is.EqualTo(DockState.Float), "Replacement tab should stay floated");
+            Assert.That(doc1.DockState, Is.EqualTo(DockState.Document), "Other tabs should remain unchanged");
+        });
+
+        [Test]
         public void MouseMoveInRightToLeft_UsesVisualActionButtonRectangles() => RunWithMessagePump(() =>
         {
             using var hostForm = new Form
@@ -356,6 +651,127 @@ namespace mRemoteNGTests.UI.Tabs
 
             Assert.That(GetRectangleProperty(dockPaneStrip, "ActiveMinimize"), Is.EqualTo(visualMinimizeButtonRect), "Minimize hover rectangle should use visual RTL coordinates");
         });
+
+        [Test]
+        public void DocumentTabText_GetsAtLeastTheWidthItWasMeasuredAt() => RunWithMessagePump(() =>
+        {
+            (Form hostForm, DockPanel dockPanel) = ShowHostedDockPanel();
+            using (hostForm)
+            {
+                // A plain document carries only the close button; connection tabs carry the
+                // close and the minimize button, which is where the sizing used to fall short.
+                var logsDocument = new DockContent { Text = "Logs", TabText = "Logs", CloseButton = true, CloseButtonVisible = true };
+                var shortName = CreateConnectionTab("SRV");
+                var mediumName = CreateConnectionTab("Build agent 7");
+
+                logsDocument.Show(dockPanel, DockState.Document);
+                shortName.Show(dockPanel, DockState.Document);
+                mediumName.Show(dockPanel, DockState.Document);
+                Application.DoEvents();
+
+                DockPaneStripNG dockPaneStrip = FindDockPaneStripNG(dockPanel);
+                Assert.That(dockPaneStrip, Is.Not.Null, "Could not find DockPaneStripNG control");
+                dockPaneStrip.Refresh();
+                Application.DoEvents();
+
+                Assert.Multiple(() =>
+                {
+                    AssertTextFitsItsRectangle(dockPaneStrip, 0, logsDocument);
+                    AssertTextFitsItsRectangle(dockPaneStrip, 1, shortName);
+                    AssertTextFitsItsRectangle(dockPaneStrip, 2, mediumName);
+                });
+            }
+        });
+
+        [Test]
+        public void DocumentTabWidth_GrowsWithTheLengthOfTheName() => RunWithMessagePump(() =>
+        {
+            (Form hostForm, DockPanel dockPanel) = ShowHostedDockPanel();
+            using (hostForm)
+            {
+                var shortName = CreateConnectionTab("SRV");
+                var mediumName = CreateConnectionTab("Build agent 7");
+                var longName = CreateConnectionTab("Production database cluster in the Frankfurt data centre");
+
+                shortName.Show(dockPanel, DockState.Document);
+                mediumName.Show(dockPanel, DockState.Document);
+                longName.Show(dockPanel, DockState.Document);
+                Application.DoEvents();
+
+                DockPaneStripNG dockPaneStrip = FindDockPaneStripNG(dockPanel);
+                Assert.That(dockPaneStrip, Is.Not.Null, "Could not find DockPaneStripNG control");
+                dockPaneStrip.Refresh();
+                Application.DoEvents();
+
+                int shortWidth = GetTabWidth(dockPaneStrip, 0);
+                int mediumWidth = GetTabWidth(dockPaneStrip, 1);
+                int longWidth = GetTabWidth(dockPaneStrip, 2);
+
+                Assert.Multiple(() =>
+                {
+                    Assert.That(mediumWidth, Is.GreaterThan(shortWidth), "A longer name should get a wider tab");
+                    Assert.That(longWidth, Is.GreaterThan(mediumWidth), "A longer name should get a wider tab");
+                    Assert.That(longWidth, Is.EqualTo(dockPaneStrip.LogicalToDeviceUnits(200)),
+                                "A very long name should be capped at the DPI-scaled maximum tab width");
+                });
+            }
+        });
+
+        private static (Form hostForm, DockPanel dockPanel) ShowHostedDockPanel()
+        {
+            var hostForm = new Form
+            {
+                Width = 800,
+                Height = 600,
+                ShowInTaskbar = false,
+                StartPosition = FormStartPosition.Manual,
+                Location = new Point(-10000, -10000)
+            };
+
+            var dockPanel = new DockPanel
+            {
+                Dock = DockStyle.Fill,
+                DocumentStyle = DocumentStyle.DockingWindow,
+                Theme = new VS2015LightTheme()
+            };
+
+            dockPanel.Theme.Extender.DockPaneStripFactory = new MremoteDockPaneStripFactory();
+
+            hostForm.Controls.Add(dockPanel);
+            hostForm.Show();
+
+            return (hostForm, dockPanel);
+        }
+
+        private static ConnectionTab CreateConnectionTab(string name)
+        {
+            return new ConnectionTab
+            {
+                Text = name,
+                TabText = name,
+                CloseButton = true,
+                CloseButtonVisible = true,
+                DockAreas = DockAreas.Document | DockAreas.Float
+            };
+        }
+
+        private static void AssertTextFitsItsRectangle(DockPaneStripNG dockPaneStrip, int index, IDockContent content)
+        {
+            Rectangle textRectangle = dockPaneStrip.GetDocumentTextRectangle(index);
+            int measuredWidth = dockPaneStrip.MeasureDocumentTabText(content).Width;
+
+            Assert.That(textRectangle.Width, Is.GreaterThanOrEqualTo(measuredWidth),
+                        $"The text rectangle of \"{content.DockHandler.TabText}\" is narrower than the text it was sized for");
+        }
+
+        private static int GetTabWidth(DockPaneStripNG dockPaneStrip, int index)
+        {
+            object tab = GetTabAtIndex(dockPaneStrip, index);
+            PropertyInfo tabWidthProperty = tab.GetType().GetProperty("TabWidth");
+            Assert.That(tabWidthProperty, Is.Not.Null, "Could not find TabWidth property");
+
+            return (int)tabWidthProperty.GetValue(tab);
+        }
 
         private static DockPaneStripNG FindDockPaneStripNG(Control parent)
         {
