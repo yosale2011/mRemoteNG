@@ -772,7 +772,17 @@ namespace mRemoteNG.UI.Window
                 string passwordValue = value?.ToString() ?? string.Empty;
 
                 using FrmInputBox revealBox = new(Language.RevealPassword, Language.RevealPasswordDescription, passwordValue);
-                revealBox.ShowDialog(this);
+                if (revealBox.ShowDialog(this) != DialogResult.OK)
+                    return;
+
+                // OK with an edited value changes the password; the master password was verified above.
+                string editedValue = revealBox.returnValue ?? string.Empty;
+                if (editedValue == passwordValue ||
+                    gridItem.PropertyDescriptor.IsReadOnly ||
+                    gridItem.PropertyDescriptor.PropertyType != typeof(string))
+                    return;
+
+                _pGrid.SetGridItemValue(gridItem, editedValue);
             }
             catch (Exception ex)
             {

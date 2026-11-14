@@ -386,6 +386,20 @@ namespace mRemoteNG.UI.Controls.ConnectionInfoPropertyGrid {
                 SelectedConnectionInfo?.RaiseInheritanceChanged();
         }
 
+        /// <summary>
+        /// Sets a grid item's value from code and raises PropertyValueChanged, so the change is
+        /// handled exactly like one typed into the grid.
+        /// </summary>
+        internal void SetGridItemValue(GridItem gridItem, object newValue) {
+            if (gridItem?.PropertyDescriptor == null || SelectedObject == null)
+                return;
+
+            object oldValue = gridItem.PropertyDescriptor.GetValue(SelectedObject);
+            gridItem.PropertyDescriptor.SetValue(SelectedObject, newValue);
+            Refresh();
+            OnPropertyValueChanged(new PropertyValueChangedEventArgs(gridItem, oldValue));
+        }
+
         private void pGrid_PropertyValueChanged(object s, PropertyValueChangedEventArgs e) {
             try {
                 UpdateConnectionInfoNode(e);
