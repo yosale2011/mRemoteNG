@@ -158,6 +158,10 @@ namespace mRemoteNG.App
             if (string.IsNullOrWhiteSpace(existingCipherText))
                 return;
 
+            // DPAPI-protected values are bound to the Windows account, not to the encryption key.
+            if (OptionPasswords.IsProtected(existingCipherText))
+                return;
+
             try
             {
                 string plainText = cryptoProvider.Decrypt(existingCipherText, oldKey);
