@@ -29,19 +29,20 @@ public class ConnectionInfoPropertyGridTests
     [Test]
     public void SettingAGridItemValueChangesTheConnectionAndRaisesPropertyValueChanged()
     {
-        ConnectionInfo connection = new() { Password = "old password" };
+        // Name is used because it is shown in every property mode.
+        ConnectionInfo connection = new() { Name = "old name" };
         using TestablePropertyGrid grid = new();
         grid.CreateControl();
         grid.SelectedConnectionInfo = connection;
-        GridItem passwordItem = FindGridItem(grid, nameof(ConnectionInfo.Password));
-        Assert.That(passwordItem, Is.Not.Null, "Password grid item not found");
+        GridItem nameItem = FindGridItem(grid, nameof(ConnectionInfo.Name));
+        Assert.That(nameItem, Is.Not.Null, "Name grid item not found");
         List<object> oldValues = new();
         grid.PropertyValueChanged += (sender, args) => oldValues.Add(args.OldValue);
 
-        grid.SetGridItemValue(passwordItem, "new password");
+        grid.SetGridItemValue(nameItem, "new name");
 
-        Assert.That(connection.Password, Is.EqualTo("new password"));
-        Assert.That(oldValues, Is.EqualTo(new object[] { "old password" }));
+        Assert.That(connection.Name, Is.EqualTo("new name"));
+        Assert.That(oldValues, Is.EqualTo(new object[] { "old name" }));
     }
 
     private static GridItem FindGridItem(PropertyGrid grid, string propertyName)
